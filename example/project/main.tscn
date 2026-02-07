@@ -1,0 +1,10 @@
+[gd_scene format=3 uid="uid://b4kutas2em76c"]
+
+[ext_resource type="Script" uid="uid://braquiigrjp3a" path="res://root.gd" id="1_ig7tw"]
+
+[node name="Root" type="Node2D" unique_id=2063511671]
+script = ExtResource("1_ig7tw")
+
+[node name="HelloGodot" type="HelloGodot" parent="." unique_id=1744002697]
+
+[connection signal="blip" from="HelloGodot" to="." method="_blipped"]

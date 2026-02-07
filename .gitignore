@@ -1,0 +1,4 @@
+.local/
+**/*.fasl
+
+.emacs.desktop*
