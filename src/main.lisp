@@ -46,7 +46,9 @@
 
 
 (defun run-with-godot (instance)
-  (%gdext.util:initialize-extension '%godot:godot-instance)
+  (loop for class-name in '(%godot:godot-instance
+                            %godot:time)
+        do (%gdext.util:initialize-extension class-name))
   (%godot:godot-instance+start@1126i1g instance))
 
 
