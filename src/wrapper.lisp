@@ -14,12 +14,11 @@
 
 
 (defun make-pozzo-wrapper (godot-object pozzo-object)
-  (with-slots (wrapper-registry) *pozzo*
-    (let ((wrapper (memalloc '(:struct pozzo-wrapper))))
-      (c-val ((wrapper (:struct pozzo-wrapper)))
-        (setf (wrapper :g-object) godot-object
-              (wrapper :p-object) pozzo-object))
-      wrapper)))
+  (let ((wrapper (memalloc '(:struct pozzo-wrapper))))
+    (c-val ((wrapper (:struct pozzo-wrapper)))
+      (setf (wrapper :g-object) godot-object
+            (wrapper :p-object) pozzo-object))
+    wrapper))
 
 
 (defun destroy-pozzo-wrapper (wrapper)

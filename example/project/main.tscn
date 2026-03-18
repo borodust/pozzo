@@ -1,10 +1,16 @@
 [gd_scene format=3 uid="uid://b4kutas2em76c"]
 
 [ext_resource type="Script" uid="uid://braquiigrjp3a" path="res://root.gd" id="1_ig7tw"]
+[ext_resource type="Texture2D" uid="uid://scbgaaum477j" path="res://icon.svg" id="2_0xm2m"]
 
 [node name="Root" type="Node2D" unique_id=2063511671]
 script = ExtResource("1_ig7tw")
 
 [node name="HelloGodot" type="HelloGodot" parent="." unique_id=1744002697]
+
+[node name="Icon" type="Sprite2D" parent="." unique_id=1007083189]
+position = Vector2(300, 300.116)
+scale = Vector2(3, 3)
+texture = ExtResource("2_0xm2m")
 
 [connection signal="blip" from="HelloGodot" to="." method="_blipped"]

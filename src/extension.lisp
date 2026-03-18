@@ -33,6 +33,7 @@
             `(progn
                (eval-when (:compile-toplevel :load-toplevel :execute)
                  (register-extension-class ',name ',extension-name
+                                           :bind ,bind-name
                                            :parent ',parent-name
                                            :struct ',struct-name
                                            :properties ',properties
@@ -60,10 +61,7 @@
                                   (let ((self (%get-pozzo-object self)))
                                     (c-val ((self (:struct ,struct-name))
                                             (value ,property-type))
-                                      (setf (self ,(a:make-keyword property-name)) value))))))
-               (defmethod %gdext.util:godot-extension-bind-name ((ext (eql ',name)))
-                 (declare (ignore ext))
-                 ,bind-name))))))))
+                                      (setf (self ,(a:make-keyword property-name)) value)))))))))))))
 
 
 (defclass extension ()
@@ -82,6 +80,7 @@
 (defclass extension-class ()
   ((name :initarg :name :reader %name-of)
    (parent :initarg :parent :reader %parent-name-of)
+   (bind :initarg :bind :reader %bind-of)
    (struct :initarg :struct :reader %struct-name-of)
    (constructor :initarg :constructor :reader %constructor-name-of)
    (destructor :initarg :destructor :reader %destructor-name-of)
@@ -188,7 +187,8 @@
                                                                               :variant-kind (%gdext.util:godot-extension-variant-kind type))))))
           (setf (gethash method-name (%method-table-of class)) method)
           (when virtual
-            (setf (gethash bind (%vcall-table-of class)) vcall-function-name))))
+            (setf (gethash bind (%vcall-table-of class)) vcall-function-name))
+          t))
       (error "Class ~A not found in extension ~A" class-name (%name-of extension)))))
 
 
@@ -210,7 +210,7 @@
                           %gdext.types:deinitialize-callback)
            (class-library-ptr deinit-level)
          (shout-errors
-           (release-extension-level ',name class-library-ptr init-level)))
+           (release-extension-level ',name class-library-ptr deinit-level)))
        (defprotocallback (,init-cb-name %gdext.types:initialization-function)
            (interface-get-proc-address class-library-ptr init-struct)
          (declare (ignore interface-get-proc-address))
@@ -342,10 +342,6 @@
                                        ,@(unless (eq :void return-type)
                                            `((initialize-variant-from-value ,cb-ret-var (result &) ',return-type)))))
                                    (values))))))))
-               (defmethod %gdext.util:godot-extension-method-bind-name ((class-name (eql ',class-name))
-                                                                        (method-name (eql ',name)))
-                 (declare (ignore method-name class-name))
-                 ,bind-name)
                (eval-when (:compile-toplevel :load-toplevel :execute)
                  (register-extension-class-method ',name ',class-name
                                                   :bind ,bind-name

@@ -11,3 +11,6 @@ func _run() -> void:
 	print("Level Before:", obj.level)
 	obj.level = 3
 	print("Level After:", obj.level)
+	print("Exec Path:", OS.get_executable_path())
+	print("Cmd Line:", OS.get_cmdline_args())
+	print("User Cmd Line:", OS.get_cmdline_user_args())

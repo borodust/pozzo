@@ -44,8 +44,7 @@
       (%godot:godot-instance+start godot-instance (result &))
       (when (zerop result)
         (error "Failed to start Godot instance")))
-    (shout "Godot instance started")
-    (initialize-pozzo-extensions)))
+    (shout "Godot instance started")))
 
 
 (defun iterate-pozzo ()
@@ -129,9 +128,9 @@
   (let ((ptr (memalloc '(:struct pozzo-class-info))))
     (c-val ((ptr (:struct pozzo-class-info)))
       (initialize-godot-string-name (ptr :class-name &)
-                                    (%gdext.util:godot-extension-bind-name class-name))
+                                    (get-class-bind-name class-name))
       (initialize-godot-string-name (ptr :parent-name &)
-                                    (%gdext.util:godot-extension-bind-name parent-name)))
+                                    (get-class-bind-name parent-name)))
     ptr))
 
 
@@ -365,15 +364,15 @@
 
 (defun %register-property (extension-property class-name extension)
   (a:if-let ((extension-class (gethash class-name (%class-table-of extension))))
-    (with-godot-string-name (class-string-name (%gdext.util:godot-extension-bind-name class-name))
+    (with-godot-string-name (class-string-name (get-class-bind-name class-name))
       (c-with ((property-info %gdext.types:property-info))
         (initialize-godot-property (property-info &)
                                    (%name-of extension-property)
                                    (variant-kind-of extension-property))
-        (with-godot-string-names ((writer-string-name (%gdext.util:godot-extension-method-bind-name
+        (with-godot-string-names ((writer-string-name (get-method-bind-name
                                                        class-name
                                                        (writer-name-of extension-property)))
-                                  (reader-string-name (%gdext.util:godot-extension-method-bind-name
+                                  (reader-string-name (get-method-bind-name
                                                        class-name
                                                        (reader-name-of extension-property))))
           (shout "Registering property ~A of ~A (reader: ~A, writer: ~A)"
@@ -393,7 +392,7 @@
 
 (defun %register-signal (signal-name signal-properties class-name extension)
   (a:if-let ((extension-class (gethash class-name (%class-table-of extension))))
-    (with-godot-string-names ((class-string-name (%gdext.util:godot-extension-bind-name class-name))
+    (with-godot-string-names ((class-string-name (get-class-bind-name class-name))
                               (signal-string-name signal-name :snake))
       (let ((prop-count (length signal-properties)))
         (c-with ((properties-info %gdext.types:property-info :count prop-count))
@@ -427,10 +426,11 @@
 
 
 (defun register-extension-class (class-name extension-name &rest initargs
-                                 &key &allow-other-keys)
+                                 &key bind &allow-other-keys)
   (with-slots (extension-registry class-extension-table) *pozzo*
     (a:if-let ((extension (gethash extension-name extension-registry)))
       (when (apply #'%add-extension-class extension class-name initargs)
+        (register-class-bind-mapping class-name bind)
         (setf (gethash class-name class-extension-table) extension-name)
         (when (pozzo-started-p)
           (do-by-pozzo ()
@@ -439,11 +439,12 @@
       (error "Extension ~A not found" extension-name))))
 
 
-(defun register-extension-class-method (method-name class-name &rest keys &key &allow-other-keys)
+(defun register-extension-class-method (method-name class-name &rest keys &key bind &allow-other-keys)
   (with-slots (extension-registry class-extension-table) *pozzo*
     (a:if-let ((extension-name (gethash class-name class-extension-table)))
       (let ((extension (gethash extension-name extension-registry)))
         (a:when-let ((new-extension-class-method (apply #'%add-extension-class-method extension class-name method-name keys)))
+          (register-method-bind-mapping class-name method-name bind)
           (when (pozzo-started-p)
             (do-by-pozzo ()
               (unless (virtualp new-extension-class-method)

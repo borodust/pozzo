@@ -8,6 +8,10 @@
                :cffi :cffi-c-ref
                :cl-ppcre :trivial-main-thread
                :cl-muth :trivial-backtrace
+               :cl-conspack :usocket
+               :bordeaux-threads :cl-fad
+               :unix-opts :uiop
+               :slynk :swank
                :pz-godot)
   :pathname "src/"
   :serial t
@@ -16,6 +20,7 @@
                (:file "wrapper")
                (:file "extension")
                (:file "pozzo")
+               (:file "invocation")
                (:file "main")))
 
 

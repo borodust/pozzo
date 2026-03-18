@@ -1,6 +1,36 @@
 (cl:in-package :pozzo)
 
 
+(defvar *pozzo-class-bind-map* (make-hash-table :test 'eq))
+
+
+(defun register-class-bind-mapping (class-name bind-name)
+  (a:if-let ((bind-info (gethash class-name *pozzo-class-bind-map*)))
+    (setf (car bind-info) bind-name)
+    (setf (gethash class-name *pozzo-class-bind-map*) (cons bind-name (make-hash-table :test 'eq)))))
+
+
+(defun register-method-bind-mapping (class-name method-name bind-name)
+  (a:if-let ((bind-info (gethash class-name *pozzo-class-bind-map*)))
+    (let ((method-bind-map (cdr bind-info)))
+      (setf (gethash method-name method-bind-map) bind-name))
+    (error "Pozzo class ~A bind name not found" class-name)))
+
+
+(defun get-class-bind-name (class-name)
+  (a:if-let ((bind-info (gethash class-name *pozzo-class-bind-map*)))
+    (car bind-info)
+    (%gdext.util:godot-extension-bind-name class-name)))
+
+
+(defun get-method-bind-name (class-name method-name)
+  (a:if-let ((bind-info (gethash class-name *pozzo-class-bind-map*)))
+    (a:if-let ((bind-name (gethash method-name (cdr bind-info))))
+      bind-name
+      (error "Pozzo method ~A of class ~A bind name not found" method-name class-name))
+    (%gdext.util:godot-extension-method-bind-name class-name method-name)))
+
+
 (defun memalloc (type &optional (count 1))
   (%gdext.interface:mem-alloc2 (* (cffi:foreign-type-size type) count) 0))
 
@@ -146,7 +176,7 @@
     (setf (prop :class-name) (memalloc '%godot:string-name))
     (initialize-godot-string-name (prop :class-name)
                                   (when class
-                                    (%gdext.util:godot-extension-bind-name class)))
+                                    (get-class-bind-name class)))
 
     (setf (prop :hint) (cffi:foreign-enum-value '%godot:property-hint
                                                 (or hint-kind :none)))

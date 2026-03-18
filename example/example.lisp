@@ -45,4 +45,5 @@
 
 
 (defun run ()
-  (pozzo:enter :path (asdf:system-relative-pathname :pozzo/example "example/project/")))
+  (pozzo:enter :path (asdf:system-relative-pathname :pozzo/example "example/project/")
+               :editor t))
