@@ -42,6 +42,21 @@
                                            :signals ',signals))
                (cffi:defcstruct ,struct-name
                  ,@struct-slots)
+               ,@(loop for (slot-name slot-type) in struct-slots
+                       append (let ((accessor-name (a:symbolicate name '- slot-name)))
+                                `((declaim (inline ,accessor-name))
+                                  (defun ,accessor-name (instance)
+                                    (declare (optimize (speed 3) (safety 0)))
+                                    (c-ref (%get-pozzo-object instance)
+                                           (:struct ,struct-name)
+                                           ,(a:make-keyword slot-name)))
+                                  (declaim (inline (setf ,accessor-name)))
+                                  (defun (setf ,accessor-name) (value instance)
+                                    (declare (optimize (speed 3) (safety 0)))
+                                    (setf (c-ref (%get-pozzo-object instance)
+                                                 (:struct ,struct-name)
+                                                 ,(a:make-keyword slot-name))
+                                          value)))))
                (defun ,ctor-name ()
                  (let ((,ptr (memalloc '(:struct ,struct-name))))
                    (c-val ((,ptr (:struct ,struct-name)))
@@ -53,15 +68,11 @@
                (defun ,dtor-name (ptr)
                  (memfree ptr))
                ,@(loop for (property-name property-type reader writer) in properties
-                       append `((pozzo:defpmethod ,reader ((self ,name)) ,property-type
-                                  (let ((self (%get-pozzo-object self)))
-                                    (c-val ((self (:struct ,struct-name)))
-                                      (setf $result (self ,(a:make-keyword property-name))))))
-                                (pozzo:defpmethod ,writer ((self ,name) (value ,property-type)) :void
-                                  (let ((self (%get-pozzo-object self)))
-                                    (c-val ((self (:struct ,struct-name))
-                                            (value ,property-type))
-                                      (setf (self ,(a:make-keyword property-name)) value)))))))))))))
+                       append (let ((accessor-name (a:symbolicate name '- (a:make-keyword property-name))))
+                                `((pozzo:defpmethod ,reader ((self ,name)) ,property-type
+                                    (setf $result (,accessor-name self)))
+                                  (pozzo:defpmethod ,writer ((self ,name) (value ,property-type)) :void
+                                    (setf (,accessor-name self) value))))))))))))
 
 
 (defclass extension ()
@@ -237,6 +248,7 @@
                                          rest (cddr rest))))))))
 
 
+(declaim (inline initialize-variant-from-value))
 (defun initialize-variant-from-value (uninitialized-variant-ptr value-ptr class-name)
   (let* ((variant-kind (%gdext.util:godot-extension-variant-kind class-name))
          (variant-ctor (%gdext.interface:get-variant-from-type-constructor variant-kind)))
@@ -249,6 +261,7 @@
   (%gdext.interface:variant-destroy variant-ptr))
 
 
+(declaim (inline get-variant-internal-ptr))
 (defun get-variant-internal-ptr (variant-ptr)
   (let* ((variant-kind (%gdext.interface:variant-get-type variant-ptr))
          (func-ptr (%gdext.interface:variant-get-ptr-internal-getter variant-kind)))
@@ -287,13 +300,17 @@
                     finally (return (values arg-init arg-names variant-init)))
             `(progn
                ,@(unless pure
-                   `((defun ,fu-name (,instance-var ,@arg-names)
+                   `((declaim (inline ,fu-name))
+                     (defun ,fu-name (,instance-var ,@arg-names)
                        (declare (ignorable ,instance-var))
-                       ,@(if (eq :void return-type)
-                             body
-                             `((let (($result *result*))
-                                 (c-val (($result ,return-type))
-                                   ,@body)))))
+                       (c-val (,@(loop for (name type) in (rest parameters)
+                                       collect `(,name ,type)))
+                         ,@(if (eq :void return-type)
+                               body
+                               `((let (($result *result*))
+                                   (c-val (($result ,return-type))
+                                     ,@body)))))
+                       (values))
                      ,@(if virtual
                            `((defprotocallback (,vcall-name %gdext.types:class-call-virtual-with-data)
                                  (,instance-var funame ,method-data-var ,cb-args-var ,cb-ret-var)
@@ -303,8 +320,7 @@
                                  #++(shout "VCALL ~A" ',vcall-name)
                                  (let (,@(unless (eq :void return-type)
                                            `((*result* ,cb-ret-var))))
-                                   (c-val ((,instance-var (:struct pozzo-wrapper)))
-                                     (,fu-name (,instance-var &) ,@arg-init))
+                                   (,fu-name ,instance-var ,@arg-init)
                                    (values)))))
                            `((defprotocallback (,ptrcall-name %gdext.types:class-method-ptr-call)
                                  (,method-data-var ,instance-var ,cb-args-var ,cb-ret-var)
@@ -314,8 +330,7 @@
                                  #++(shout "PTRCALL ~A" ',ptrcall-name)
                                  (let (,@(unless (eq :void return-type)
                                            `((*result* ,cb-ret-var))))
-                                   (c-val ((,instance-var (:struct pozzo-wrapper)))
-                                     (,fu-name (,instance-var &) ,@arg-init))
+                                   (,fu-name ,instance-var ,@arg-init)
                                    (values))))
                              (defprotocallback (,call-name %gdext.types:class-method-call)
                                  (,method-data-var ,instance-var ,cb-args-var argc ,cb-ret-var ,err-var)
@@ -337,8 +352,7 @@
                                                 `((result ,return-type))))
                                      (let (,@(unless (eq :void return-type)
                                                `((*result* (result &)))))
-                                       (c-val ((,instance-var (:struct pozzo-wrapper)))
-                                         (,fu-name (,instance-var &) ,@variant-init))
+                                       (,fu-name ,instance-var ,@variant-init)
                                        ,@(unless (eq :void return-type)
                                            `((initialize-variant-from-value ,cb-ret-var (result &) ',return-type)))))
                                    (values))))))))

@@ -5,6 +5,7 @@
                 #:c-ref)
   (:import-from #:%gdext.util
                 #:defprotocallback
+                #:get-protocallback
                 #:funcall-prototype
                 #:bind-interface
                 #:godot-string-to-lisp)
@@ -18,7 +19,14 @@
            #:$result
 
            #:emit-signal
-           #:unwrap))
+           #:unwrap
+
+           #:c-with
+           #:c-val
+           #:c-ref
+
+           #:initialize-variant-from-value
+           #:release-variant))
 
 
 (cl:defpackage #:%%pozzo

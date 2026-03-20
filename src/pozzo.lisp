@@ -189,7 +189,7 @@
     (a:if-let ((extension-class (%find-extension-class-by-metadata-id (cffi:pointer-address class-info))))
       (let ((lisp-name (godot-string-name-to-lisp func-string-name)))
         (a:if-let ((callback-name (gethash lisp-name (%vcall-table-of extension-class))))
-          (cffi:get-callback callback-name)
+          (get-protocallback callback-name)
           (cffi:null-pointer)))
       (cffi:null-pointer))))
 
@@ -227,12 +227,12 @@
                     (creation-info :to-string-func) (cffi:null-pointer)
                     (creation-info :reference-func) (cffi:null-pointer)
                     (creation-info :unreference-func) (cffi:null-pointer)
-                    (creation-info :create-instance-func) (cffi:callback create-extension-class-instance)
-                    (creation-info :free-instance-func) (cffi:callback free-extension-class-instance)
+                    (creation-info :create-instance-func) (get-protocallback 'create-extension-class-instance)
+                    (creation-info :free-instance-func) (get-protocallback 'free-extension-class-instance)
                     (creation-info :recreate-instance-func) (cffi:null-pointer)
                     (creation-info :get-virtual-func) (cffi:null-pointer)
-                    (creation-info :get-virtual-call-data-func) (cffi:callback get-extension-class-virtual-call-data)
-                    (creation-info :call-virtual-with-data-func) (cffi:callback call-extension-class-virtual-with-data)
+                    (creation-info :get-virtual-call-data-func) (get-protocallback 'get-extension-class-virtual-call-data)
+                    (creation-info :call-virtual-with-data-func) (get-protocallback 'call-extension-class-virtual-with-data)
                     (creation-info :class-userdata) class-info)
               (c-val ((class-info (:struct pozzo-class-info)))
                 (%register-extension-class-metadata (cffi:pointer-address (class-info &)) extension-class)
@@ -273,8 +273,8 @@
     (c-val ((init-struct %gdext.types:initialization))
       (setf (init-struct :minimum-initialization-level) :initialization-scene
             (init-struct :userdata) class-library-ptr
-            (init-struct :initialize) (cffi:get-callback (level-initializer-name-of extension))
-            (init-struct :deinitialize) (cffi:get-callback (level-deinitializer-name-of extension)))))
+            (init-struct :initialize) (get-protocallback (level-initializer-name-of extension))
+            (init-struct :deinitialize) (get-protocallback (level-deinitializer-name-of extension)))))
   t)
 
 
@@ -284,7 +284,7 @@
       (%godot:gdextension-manager+load-extension-from-function (%godot:gdextension-manager)
                                                                (result &)
                                                                path-ptr
-                                                               (cffi:get-callback
+                                                               (get-protocallback
                                                                 (initializer-name-of extension))))
     (unless (eq result :ok)
       (error "Failed to load extension: ~A" result))))
@@ -329,11 +329,11 @@
                   (method-info :method-userdata) (cffi:null-pointer)
                   (method-info :call-func) (if (purep extension-class-method)
                                                (cffi:null-pointer)
-                                               (cffi:get-callback
+                                               (get-protocallback
                                                 (call-function-name-of extension-class-method)))
                   (method-info :ptrcall-func) (if (purep extension-class-method)
                                                   (cffi:null-pointer)
-                                                  (cffi:get-callback
+                                                  (get-protocallback
                                                    (ptrcall-function-name-of extension-class-method)))
                   (method-info :method-flags) (cffi:foreign-bitfield-value '%gdext.types:class-method-flags
                                                                            :flags-default)
@@ -452,13 +452,14 @@
       (error "Class ~A not found" class-name))))
 
 
-(defun emit-signal (instance signal-name)
-  (with-godot-string-name (signal-string-name signal-name)
+(declaim (inline emit-signal))
+(defun emit-signal (instance signal-name &rest variants)
+  (with-godot-string-name (signal-string-name signal-name :snake)
     (c-with ((signal-name-variant %godot:variant)
              (result-variant %godot:variant))
       (initialize-variant-from-value (signal-name-variant &) signal-string-name '%godot:string-name)
 
-      (%godot:object+emit-signal instance (result-variant &) (signal-name-variant &))
+      (apply #'%godot:object+emit-signal (unwrap instance) (result-variant &) (signal-name-variant &) variants)
 
       (prog1 (c-ref (get-variant-internal-ptr result-variant) %godot:error)
         (release-variant (signal-name-variant &))

@@ -2,15 +2,21 @@
 
 [ext_resource type="Script" uid="uid://braquiigrjp3a" path="res://root.gd" id="1_ig7tw"]
 [ext_resource type="Texture2D" uid="uid://scbgaaum477j" path="res://icon.svg" id="2_0xm2m"]
+[ext_resource type="Script" uid="uid://dsquidetj543k" path="res://position.gd" id="3_h2yge"]
 
 [node name="Root" type="Node2D" unique_id=2063511671]
 script = ExtResource("1_ig7tw")
 
 [node name="HelloGodot" type="HelloGodot" parent="." unique_id=1744002697]
-
-[node name="Icon" type="Sprite2D" parent="." unique_id=1007083189]
-position = Vector2(300, 300.116)
-scale = Vector2(3, 3)
+position = Vector2(8.454885, 11.160874)
 texture = ExtResource("2_0xm2m")
+offset = Vector2(200, 200)
 
-[connection signal="blip" from="HelloGodot" to="." method="_blipped"]
+[node name="Position" type="Label" parent="." unique_id=2096001383]
+offset_left = 46.0
+offset_top = 28.0
+offset_right = 510.0
+offset_bottom = 145.0
+script = ExtResource("3_h2yge")
+
+[connection signal="position_changed" from="HelloGodot" to="Position" method="_on_position_changed"]

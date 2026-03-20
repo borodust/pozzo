@@ -34,8 +34,8 @@
   (c-val ((init-record-ptr %gdext.types:initialization))
     (setf (init-record-ptr :minimum-initialization-level) :initialization-scene
           (init-record-ptr :userdata) (cffi:null-pointer)
-          (init-record-ptr :initialize) (cffi:callback level-init-func)
-          (init-record-ptr :deinitialize) (cffi:callback level-deinit-func))))
+          (init-record-ptr :initialize) (get-protocallback 'level-init-func)
+          (init-record-ptr :deinitialize) (get-protocallback 'level-deinit-func))))
 
 
 (defprotocallback (libgodot-init
@@ -126,7 +126,7 @@
   (prepare-pozzo)
   (with-godot-args (argc argv) args
     (let ((instance (%libgodot:create-godot-instance argc argv
-                                                     (cffi:callback libgodot-init))))
+                                                     (get-protocallback 'libgodot-init))))
       (if (cffi:null-pointer-p instance)
           (error "Failed to create Godot instance")
           (unwind-protect
@@ -181,8 +181,8 @@
   (a:with-gensyms (port)
     (a:once-only (type)
       `(let ((,port (ecase ,type
-                      (:swank (swank:create-server :port 0))
-                      (:slynk (slynk:create-server :port 0))
+                      (:swank (swank:create-server :port 0 :dont-close t))
+                      (:slynk (slynk:create-server :port 0 :dont-close t))
                       (:none nil))))
          (declare (ignorable ,port))
          (unwind-protect

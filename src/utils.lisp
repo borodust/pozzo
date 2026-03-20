@@ -23,6 +23,12 @@
     (%gdext.util:godot-extension-bind-name class-name)))
 
 
+(defun get-class-variant-kind (class-name)
+  (if (gethash class-name *pozzo-class-bind-map*)
+      :object
+      (%gdext.util:godot-extension-variant-kind class-name)))
+
+
 (defun get-method-bind-name (class-name method-name)
   (a:if-let ((bind-info (gethash class-name *pozzo-class-bind-map*)))
     (a:if-let ((bind-name (gethash method-name (cdr bind-info))))
@@ -213,24 +219,27 @@
 
 
 (defmacro shout-errors (&body body)
-  `(let (result)
-     (tagbody
-      start
-        (restart-case
-            (handler-bind ((serious-condition (lambda (c)
-                                                (format *debug-io* "~&")
-                                                (backtrace:print-condition c *debug-io*)
-                                                (backtrace:print-backtrace-to-stream *debug-io*)
-                                                (finish-output *debug-io*)
-                                                (break "~A" c))))
-              (setf result (progn ,@body)))
-          (retry-shout-body ()
-            (go start))
-          (skip-shout-body (&optional v)
-            (setf result v)
-            (go end)))
-      end)
-     result))
+  (a:with-gensyms (retry drop-out)
+    `(let (result)
+       (tagbody
+        start
+          (flet ((,retry ()
+                   (go start))
+                 (,drop-out (&optional v)
+                   (setf result v)
+                   (go end)))
+            (declare (dynamic-extent (function ,retry) (function ,drop-out)))
+            (restart-bind ((retry-shout-body #',retry)
+                           (skip-shout-body #',drop-out))
+              (handler-bind ((serious-condition (lambda (c)
+                                                  (format *debug-io* "~&")
+                                                  (backtrace:print-condition c *debug-io*)
+                                                  (backtrace:print-backtrace-to-stream *debug-io*)
+                                                  (finish-output *debug-io*)
+                                                  (break "~A" c))))
+                (setf result (progn ,@body)))))
+        end)
+       result)))
 
 
 (defun format-secret-symbol (symbol &rest postfixes)
