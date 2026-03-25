@@ -8,7 +8,7 @@
 script = ExtResource("1_ig7tw")
 
 [node name="HelloGodot" type="HelloGodot" parent="." unique_id=1744002697]
-position = Vector2(8.454885, 11.160874)
+position = Vector2(9.543862, 19.994144)
 texture = ExtResource("2_0xm2m")
 offset = Vector2(200, 200)
 

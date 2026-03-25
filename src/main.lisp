@@ -7,7 +7,7 @@
 
 
 (defprotocallback (level-init-func
-                   %gdext.types:initialize-callback)
+                   %gdext:initialize-callback)
     (userdata init-level)
   (declare (ignore userdata))
   (shout "LibGodot: ~A" init-level)
@@ -17,29 +17,28 @@
 
 
 (defprotocallback (level-deinit-func
-                                 %gdext.types:deinitialize-callback)
+                                 %gdext:deinitialize-callback)
     (userdata deinit-level)
   (declare (ignore userdata deinit-level))
   (values))
 
 
 (defun init-godot (init-record-ptr)
-  (c-with ((godot-version %gdext.types:godot-version-2))
-    (%gdext.interface:get-godot-version2 (godot-version &))
+  (c-with ((godot-version %gdext:godot-version-2))
+    (%gdext:get-godot-version2 (godot-version &))
     (format *standard-output* "~&Godot version: ~A.~A.~A"
             (godot-version :major)
             (godot-version :minor)
             (godot-version :patch)))
 
-  (c-val ((init-record-ptr %gdext.types:initialization))
+  (c-val ((init-record-ptr %gdext:initialization))
     (setf (init-record-ptr :minimum-initialization-level) :initialization-scene
           (init-record-ptr :userdata) (cffi:null-pointer)
           (init-record-ptr :initialize) (get-protocallback 'level-init-func)
           (init-record-ptr :deinitialize) (get-protocallback 'level-deinit-func))))
 
 
-(defprotocallback (libgodot-init
-                                 %gdext.types:initialization-function)
+(defprotocallback (libgodot-init %gdext:initialization-function)
     (get-proc-addr-ptr class-lib-ptr init-record-ptr)
   (declare (ignore class-lib-ptr))
   (bind-interface get-proc-addr-ptr)
@@ -225,14 +224,16 @@
       (a:when-let ((system (getf pozzo-args :system)))
         (asdf:load-system system :verbose t))
       (flet ((%main ()
-               (cffi:load-foreign-library 'godot)
-               (float-features:with-float-traps-masked t
-                 (unwind-protect
-                      (with-repl-server (:type (getf pozzo-args :repl-server))
-                        (apply #'run-main (list* :user-arguments user-args
-                                                 :godot-arguments godot-args
-                                                 (append args pozzo-args))))
-                   (cffi:close-foreign-library 'godot)))))
-        (trivial-main-thread:call-in-main-thread #'%main :blocking (or blocking
-                                                                       (getf pozzo-args :wait))))))
+               (shout-errors
+                 (cffi:load-foreign-library 'godot)
+                 (float-features:with-float-traps-masked t
+                   (unwind-protect
+                        (with-repl-server (:type (getf pozzo-args :repl-server))
+                          (apply #'run-main (list* :user-arguments user-args
+                                                   :godot-arguments godot-args
+                                                   (append args pozzo-args))))
+                     (cffi:close-foreign-library 'godot))))))
+        (trivial-main-thread:call-in-main-thread #'%main
+                                                 :blocking (or blocking
+                                                               (getf pozzo-args :wait))))))
   (values))

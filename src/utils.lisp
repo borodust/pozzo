@@ -20,13 +20,13 @@
 (defun get-class-bind-name (class-name)
   (a:if-let ((bind-info (gethash class-name *pozzo-class-bind-map*)))
     (car bind-info)
-    (%gdext.util:godot-extension-bind-name class-name)))
+    (godot-extension-bind-name class-name)))
 
 
 (defun get-class-variant-kind (class-name)
   (if (gethash class-name *pozzo-class-bind-map*)
       :object
-      (%gdext.util:godot-extension-variant-kind class-name)))
+      (godot-extension-variant-kind class-name)))
 
 
 (defun get-method-bind-name (class-name method-name)
@@ -34,20 +34,21 @@
     (a:if-let ((bind-name (gethash method-name (cdr bind-info))))
       bind-name
       (error "Pozzo method ~A of class ~A bind name not found" method-name class-name))
-    (%gdext.util:godot-extension-method-bind-name class-name method-name)))
+    (godot-extension-method-bind-name class-name method-name)))
 
 
+(declaim (inline memalloc))
 (defun memalloc (type &optional (count 1))
-  (%gdext.interface:mem-alloc2 (* (cffi:foreign-type-size type) count) 0))
+  (%gdext:mem-alloc2 (* (cffi:foreign-type-size type) count) 0))
 
 
 (define-compiler-macro memalloc (type &optional (count 1))
   (flet ((%expand-body (size)
-           `(%gdext.interface:mem-alloc2 ,(if (and (numberp size)
-                                                   (numberp count))
-                                              (* size count)
-                                              `(* ,size ,count))
-                                         0)))
+           `(%gdext:mem-alloc2 ,(if (and (numberp size)
+                                         (numberp count))
+                                    (* size count)
+                                    `(* ,size ,count))
+                               0)))
     (cond
       ((and (listp type)
             (eq 'quote (first type)))
@@ -59,12 +60,13 @@
       (t (%expand-body `(cffi:foreign-type-size ,type))))))
 
 
+(declaim (inline memfree))
 (defun memfree (ptr)
-  (%gdext.interface:mem-free2 ptr 0))
+  (%gdext:mem-free2 ptr 0))
 
 
 (define-compiler-macro memfree (ptr)
-  `(%gdext.interface:mem-free2 ,ptr 0))
+  `(%gdext:mem-free2 ,ptr 0))
 
 
 (defmacro c-with ((&rest bindings) &body body)
@@ -94,7 +96,7 @@
       (cffi:with-foreign-string (content-ptr (string lisp-string) :encoding :utf-8)
         (if case
             (c-with ((tmp %godot:string))
-              (%gdext.interface:string-new-with-utf8-chars (tmp &) content-ptr)
+              (%gdext:string-new-with-utf8-chars (tmp &) content-ptr)
               (%godot:make-string ptr)
               (case case
                 (:pascal (%godot:string+to-pascal-case (tmp &) ptr))
@@ -102,10 +104,11 @@
                 (:kebab (%godot:string+to-kebab-case (tmp &) ptr))
                 (:camel (%godot:string+to-camel-case (tmp &) ptr)))
               (%godot:destroy-string (tmp &)))
-            (%gdext.interface:string-new-with-utf8-chars ptr content-ptr)))
+            (%gdext:string-new-with-utf8-chars ptr content-ptr)))
       (%godot:make-string ptr)))
 
 
+(declaim (inline destroy-godot-string))
 (defun destroy-godot-string (ptr)
   (%godot:destroy-string ptr))
 
@@ -138,10 +141,11 @@
               (initialize-godot-string (tmp &) lisp-string case)
               (%godot:make-string-name@2 ptr (tmp &))
               (%godot:destroy-string (tmp &)))
-            (%gdext.interface:string-name-new-with-utf8-chars ptr content-ptr)))
+            (%gdext:string-name-new-with-utf8-chars ptr content-ptr)))
       (%godot:make-string-name ptr)))
 
 
+(declaim (inline destroy-godot-string-name))
 (defun destroy-godot-string-name (ptr)
   (%godot:destroy-string-name ptr))
 
@@ -163,6 +167,7 @@
       `(progn ,@body)))
 
 
+(declaim (inline godot-string-name-to-lisp))
 (defun godot-string-name-to-lisp (ptr)
   (c-with ((godot-string %godot:string))
     (%godot:make-string@2 (godot-string &) ptr)
@@ -172,8 +177,8 @@
 
 
 (defun initialize-godot-property (prop name variant-type
-                            &key class hint-kind hint usage)
-  (c-val ((prop %gdext.types:property-info))
+                                  &key class hint-kind hint usage)
+  (c-val ((prop %gdext:property-info))
     (setf (prop :type) variant-type)
 
     (setf (prop :name) (memalloc '%godot:string-name))
@@ -195,14 +200,16 @@
   prop)
 
 
+(declaim (inline make-godot-property))
 (defun make-godot-property (name variant-type &rest keys &key &allow-other-keys)
-  (let ((prop (memalloc '%gdext.types:property-info)))
+  (let ((prop (memalloc '%gdext:property-info)))
     (apply #'initialize-godot-property prop name variant-type keys)
     prop))
 
 
+(declaim (inline release-godot-property))
 (defun release-godot-property (prop)
-  (c-val ((prop %gdext.types:property-info))
+  (c-val ((prop %gdext:property-info))
     (destroy-godot-string-name (prop :name))
     (memfree (prop :name))
 
@@ -213,6 +220,7 @@
     (memfree (prop :hint-string))))
 
 
+(declaim (inline destroy-godot-property))
 (defun destroy-godot-property (prop)
   (release-godot-property prop)
   (memfree prop))

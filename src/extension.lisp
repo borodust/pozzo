@@ -70,7 +70,7 @@
                ,@(loop for (property-name property-type reader writer) in properties
                        append (let ((accessor-name (a:symbolicate name '- (a:make-keyword property-name))))
                                 `((pozzo:defpmethod ,reader ((self ,name)) ,property-type
-                                    (setf $result (,accessor-name self)))
+                                    (pozzo:return-value (,accessor-name self)))
                                   (pozzo:defpmethod ,writer ((self ,name) (value ,property-type)) :void
                                     (setf (,accessor-name self) value))))))))))))
 
@@ -108,7 +108,7 @@
           do (setf (gethash name property-table)
                    (make-instance 'extension-property
                                   :name name
-                                  :variant-kind (%gdext.util:godot-extension-variant-kind type)
+                                  :variant-kind (godot-extension-variant-kind type)
                                   :class type
                                   :reader reader
                                   :writer writer)))
@@ -118,7 +118,7 @@
                    (loop for (param-name param-type) in parameters
                          collect (make-instance 'extension-property
                                                 :name param-name
-                                                :variant-kind (%gdext.util:godot-extension-variant-kind param-type)
+                                                :variant-kind (godot-extension-variant-kind param-type)
                                                 :class param-type))))))
 
 
@@ -191,11 +191,11 @@
                                      :return-type (make-instance 'extension-property
                                                                  :variant-kind (if (eq :void return-type)
                                                                                    :nil
-                                                                                   (%gdext.util:godot-extension-variant-kind return-type)))
+                                                                                   (godot-extension-variant-kind return-type)))
                                      :parameters (loop for (name type) in parameters
                                                        collect (make-instance 'extension-property
                                                                               :name name
-                                                                              :variant-kind (%gdext.util:godot-extension-variant-kind type))))))
+                                                                              :variant-kind (godot-extension-variant-kind type))))))
           (setf (gethash method-name (%method-table-of class)) method)
           (when virtual
             (setf (gethash bind (%vcall-table-of class)) vcall-function-name))
@@ -213,16 +213,16 @@
                                     :level-init ',level-init-cb-name
                                     :level-deinit ',level-deinit-cb-name))
        (defprotocallback (,level-init-cb-name
-                          %gdext.types:initialize-callback)
+                          %gdext:initialize-callback)
            (class-library-ptr init-level)
          (shout-errors
            (initialize-extension-level ',name class-library-ptr init-level)))
        (defprotocallback (,level-deinit-cb-name
-                          %gdext.types:deinitialize-callback)
+                          %gdext:deinitialize-callback)
            (class-library-ptr deinit-level)
          (shout-errors
            (release-extension-level ',name class-library-ptr deinit-level)))
-       (defprotocallback (,init-cb-name %gdext.types:initialization-function)
+       (defprotocallback (,init-cb-name %gdext:initialization-function)
            (interface-get-proc-address class-library-ptr init-struct)
          (declare (ignore interface-get-proc-address))
          (shout-errors
@@ -250,23 +250,101 @@
 
 (declaim (inline initialize-variant-from-value))
 (defun initialize-variant-from-value (uninitialized-variant-ptr value-ptr class-name)
-  (let* ((variant-kind (%gdext.util:godot-extension-variant-kind class-name))
-         (variant-ctor (%gdext.interface:get-variant-from-type-constructor variant-kind)))
-    (%gdext.util:funcall-prototype variant-ctor %gdext.types:variant-from-type-constructor-func
+  (let* ((variant-kind (godot-extension-variant-kind class-name))
+         (variant-ctor (%gdext:get-variant-from-type-constructor variant-kind)))
+    (funcall-prototype variant-ctor %gdext:variant-from-type-constructor-func
                                    uninitialized-variant-ptr
                                    value-ptr)))
 
 
+(declaim (inline release-variant))
 (defun release-variant (variant-ptr)
-  (%gdext.interface:variant-destroy variant-ptr))
+  (%gdext:variant-destroy variant-ptr))
 
 
 (declaim (inline get-variant-internal-ptr))
 (defun get-variant-internal-ptr (variant-ptr)
-  (let* ((variant-kind (%gdext.interface:variant-get-type variant-ptr))
-         (func-ptr (%gdext.interface:variant-get-ptr-internal-getter variant-kind)))
-    (%gdext.util:funcall-prototype func-ptr %gdext.types:variant-get-internal-ptr-func
+  (let* ((variant-kind (%gdext:variant-get-type variant-ptr))
+         (func-ptr (%gdext:variant-get-ptr-internal-getter variant-kind)))
+    (funcall-prototype func-ptr %gdext:variant-get-internal-ptr-func
                                    variant-ptr)))
+
+
+(defun prepare-arguments (args-var parameters)
+  (multiple-value-bind (args arg-types arg-init arg-names variant-init)
+      (loop for (name type) in parameters
+            for i from 0
+            collect `(cffi:mem-aref ,args-var :pointer ,i) into arg-init
+            collect `(get-variant-internal-ptr
+                      (cffi:mem-aref ,args-var :pointer ,i))
+              into variant-init
+            collect name into arg-names
+            collect type into arg-types
+            collect (list name type) into args
+            finally (return (values args arg-types arg-init arg-names variant-init)))
+    (list :args args
+          :arg-names arg-names
+          :arg-types arg-types
+          :arg-values arg-init
+          :variant-values variant-init)))
+
+
+(defun return-value (value)
+  (declare (ignore value))
+  (error "This is a stub. Never call this function outside of the lexical scope of defpmethod's body"))
+
+
+(defun expand-return-value (block-name result-ptr-var result-type result-value-var)
+  `(progn
+     (unless (cffi:null-pointer-p ,result-ptr-var)
+       (setf (c-ref ,result-ptr-var ,result-type) ,result-value-var))
+     (return-from ,block-name (values))))
+
+
+(defun expand-godot-call-callback (call-name implementing-function-name return-type parameters)
+  (a:with-gensyms (cb-method-data-var cb-instance-var cb-args-var cb-argc-var cb-ret-var cb-err-var
+                                      result-var)
+    (destructuring-bind (&key arg-names arg-types arg-values variant-values &allow-other-keys)
+        (prepare-arguments cb-args-var parameters)
+      `(defprotocallback (,call-name %gdext:class-method-call)
+           (,cb-method-data-var ,cb-instance-var ,cb-args-var ,cb-argc-var ,cb-ret-var ,cb-err-var)
+         (declare (ignore ,cb-method-data-var)
+                  (ignorable ,cb-instance-var ,cb-args-var ,cb-ret-var))
+         (shout-errors
+           #++(shout "CALL ~A" ',call-name)
+           (c-val ((,cb-err-var %gdext:call-error))
+             (setf (,cb-err-var :error) :ok)
+
+             (when (< ,cb-argc-var ,(length arg-names))
+               (setf (,cb-err-var :error) :error-too-few-arguments
+                     (,cb-err-var :expected) ,(length arg-names))
+               (return-from ,call-name (values)))
+
+             (when (> ,cb-argc-var ,(length arg-names))
+               (setf (,cb-err-var :error) :error-too-many-arguments
+                     (,cb-err-var :expected) ,(length arg-names))
+               (return-from ,call-name (values)))
+
+             ,@(loop for arg-value in arg-values
+                     for arg-type in arg-types
+                     for i from 0
+                     for variant-kind = (get-class-variant-kind arg-type)
+                     collect `(unless (eq ,variant-kind
+                                          (%gdext:variant-get-type ,arg-value))
+                                (setf (,cb-err-var :error) :error-invalid-argument
+                                      (,cb-err-var :expected) ,(cffi:foreign-enum-value
+                                                                '%gdext:variant-type
+                                                                variant-kind)
+                                      (,cb-err-var :argument) ,i)
+                                (return-from ,call-name (values))))
+             ,(if (eq :void return-type)
+                  `(,implementing-function-name ,cb-instance-var (cffi:null-pointer) ,@variant-values)
+                  `(if (cffi:null-pointer-p ,cb-ret-var)
+                       (,implementing-function-name ,cb-instance-var (cffi:null-pointer) ,@variant-values)
+                       (c-with ((,result-var ,return-type))
+                         (,implementing-function-name ,cb-instance-var (,result-var &) ,@variant-values)
+                         (initialize-variant-from-value ,cb-ret-var (,result-var &) ',return-type)))))
+           (values))))))
 
 
 (defmacro defpmethod (name-and-opts parameters return-type &body body)
@@ -288,74 +366,48 @@
              (bind-name (format nil "~{~A~^_~}"
                                 (mapcar #'nstring-downcase (ppcre:split "\\W+"
                                                                         (substitute #\_ #\% (string name)))))))
-        (a:with-gensyms (method-data-var cb-args-var cb-ret-var err-var)
-          (multiple-value-bind (arg-init arg-names variant-init)
-              (loop for (name) in (rest parameters)
-                    for i from 0
-                    collect `(cffi:mem-aref ,cb-args-var :pointer ,i) into arg-init
-                    collect `(get-variant-internal-ptr
-                              (cffi:mem-aref ,cb-args-var :pointer ,i))
-                      into variant-init
-                    collect name into arg-names
-                    finally (return (values arg-init arg-names variant-init)))
+        (a:with-gensyms (method-data-var cb-args-var cb-ret-var result-var)
+          (destructuring-bind (&key arg-names
+                                 ((:arg-values arg-init))
+                               &allow-other-keys)
+              (prepare-arguments cb-args-var (rest parameters))
             `(progn
                ,@(unless pure
                    `((declaim (inline ,fu-name))
-                     (defun ,fu-name (,instance-var ,@arg-names)
-                       (declare (ignorable ,instance-var))
+                     (defun ,fu-name (,instance-var ,result-var ,@arg-names)
+                       (declare (ignorable ,instance-var ,result-var))
                        (c-val (,@(loop for (name type) in (rest parameters)
                                        collect `(,name ,type)))
                          ,@(if (eq :void return-type)
                                body
-                               `((let (($result *result*))
-                                   (c-val (($result ,return-type))
-                                     ,@body)))))
+                               `((macrolet ((pozzo::return-value (result)
+                                              (expand-return-value ',fu-name ',result-var ',return-type result)))
+                                   ,@body))))
                        (values))
                      ,@(if virtual
-                           `((defprotocallback (,vcall-name %gdext.types:class-call-virtual-with-data)
+                           `((defprotocallback (,vcall-name %gdext:class-call-virtual-with-data)
                                  (,instance-var funame ,method-data-var ,cb-args-var ,cb-ret-var)
                                (declare (ignore funame ,method-data-var)
                                         (ignorable ,instance-var ,cb-args-var ,cb-ret-var))
                                (shout-errors
                                  #++(shout "VCALL ~A" ',vcall-name)
-                                 (let (,@(unless (eq :void return-type)
-                                           `((*result* ,cb-ret-var))))
-                                   (,fu-name ,instance-var ,@arg-init)
-                                   (values)))))
-                           `((defprotocallback (,ptrcall-name %gdext.types:class-method-ptr-call)
+                                 (,fu-name ,instance-var ,(if (eq :void return-type)
+                                                              '(cffi:null-pointer)
+                                                              cb-ret-var)
+                                           ,@arg-init)
+                                 (values))))
+                           `((defprotocallback (,ptrcall-name %gdext:class-method-ptr-call)
                                  (,method-data-var ,instance-var ,cb-args-var ,cb-ret-var)
                                (declare (ignore ,method-data-var)
                                         (ignorable ,cb-args-var ,cb-ret-var))
                                (shout-errors
                                  #++(shout "PTRCALL ~A" ',ptrcall-name)
-                                 (let (,@(unless (eq :void return-type)
-                                           `((*result* ,cb-ret-var))))
-                                   (,fu-name ,instance-var ,@arg-init)
-                                   (values))))
-                             (defprotocallback (,call-name %gdext.types:class-method-call)
-                                 (,method-data-var ,instance-var ,cb-args-var argc ,cb-ret-var ,err-var)
-                               (declare (ignore ,method-data-var)
-                                        (ignorable ,instance-var ,cb-args-var ,cb-ret-var))
-                               (shout-errors
-                                 #++(shout "CALL ~A" ',call-name)
-                                 (c-val ((,err-var %gdext.types:call-error))
-                                   (setf (,err-var :error) :ok)
-                                   (when (< argc ,(length arg-names))
-                                     (setf (,err-var :error) :error-too-few-arguments
-                                           (,err-var :expected) ,(length arg-names))
-                                     (return-from ,call-name (values)))
-                                   (when (> argc ,(length arg-names))
-                                     (setf (,err-var :error) :error-too-many-arguments
-                                           (,err-var :expected) ,(length arg-names))
-                                     (return-from ,call-name (values)))
-                                   (c-with (,@(unless (eq :void return-type)
-                                                `((result ,return-type))))
-                                     (let (,@(unless (eq :void return-type)
-                                               `((*result* (result &)))))
-                                       (,fu-name ,instance-var ,@variant-init)
-                                       ,@(unless (eq :void return-type)
-                                           `((initialize-variant-from-value ,cb-ret-var (result &) ',return-type)))))
-                                   (values))))))))
+                                 (,fu-name ,instance-var ,(if (eq :void return-type)
+                                                              '(cffi:null-pointer)
+                                                              cb-ret-var)
+                                           ,@arg-init)
+                                 (values)))
+                             ,(expand-godot-call-callback call-name fu-name return-type (rest parameters))))))
                (eval-when (:compile-toplevel :load-toplevel :execute)
                  (register-extension-class-method ',name ',class-name
                                                   :bind ,bind-name

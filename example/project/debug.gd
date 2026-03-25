@@ -14,3 +14,8 @@ func _run() -> void:
 	print("Amplitude Before:", obj.amplitude)
 	obj.amplitude = 25.0
 	print("Amplitude After:", obj.amplitude)
+
+	print("Variant Call:", obj.string_length("HEI"))
+	
+	var hello: HelloGodot = obj
+	print("Ptr Call:", hello.string_length("HEYO"))

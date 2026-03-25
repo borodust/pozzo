@@ -21,7 +21,8 @@
           :initform 1d0
           :exposed t))
   (:inherit %godot:sprite-2d)
-  (:signals (position-changed (new-position %godot:vector-2)))
+  (:signals (position-changed (new-position %godot:vector-2))
+            (bytes-consed (new-ceiling %godot:int)))
   (:extension example))
 
 
@@ -35,16 +36,25 @@
           (y (+ (hello-godot-amplitude self)
                 (* (hello-godot-amplitude self)
                    (cos (* (hello-godot-time-passed self) 1.5))))))
-      (%godot:node-2d+set-position (pozzo:unwrap self)
-                                   (%godot:make-vector-2@3 (new-pos &)
-                                                           (float x 0d0)
-                                                           (float y 0d0)))
+      (%godot:make-vector-2@3 (new-pos &)
+                              (float x 0d0)
+                              (float y 0d0))
+      (%godot:node-2d+set-position (pozzo:unwrap self) (new-pos &))
       (pozzo:c-with ((new-pos-variant %godot:variant))
         (pozzo:initialize-variant-from-value (new-pos-variant &)
-                                              (new-pos &)
-                                              '%godot:vector-2)
+                                             (new-pos &)
+                                             '%godot:vector-2)
         (pozzo:emit-signal self 'position-changed (new-pos-variant &))
-        (pozzo:release-variant (new-pos-variant &))))))
+        (pozzo:symbol-string-name 'position-changed)
+        (pozzo:release-variant (new-pos-variant &)))))
+
+  (pozzo:emit-signal self 'bytes-consed
+                     #+sbcl (sb-ext:get-bytes-consed)
+                     #-sbcl 0))
+
+
+(pozzo:defpmethod string-length ((self hello-godot) (str %godot:string)) %godot:int
+  (pozzo:return-value (length (pozzo::godot-string-to-lisp str))))
 
 
 (defun run (&key editor)
