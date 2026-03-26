@@ -18,8 +18,9 @@
 
            #:defpextension
            #:defpclass
+           #:defpsignal
            #:defpmethod
-           #:return-value
+           #:preturn
 
            #:emit-signal
            #:unwrap
@@ -30,7 +31,10 @@
 
            #:initialize-variant-from-value
            #:release-variant
-           #:symbol-string-name))
+           #:symbol-string-name
+
+           #:with-variant
+           #:with-variants))
 
 
 (cl:defpackage #:%%pozzo

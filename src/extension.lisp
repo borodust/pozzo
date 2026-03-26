@@ -38,8 +38,7 @@
                                            :struct ',struct-name
                                            :properties ',properties
                                            :constructor ',ctor-name
-                                           :destructor ',dtor-name
-                                           :signals ',signals))
+                                           :destructor ',dtor-name))
                (cffi:defcstruct ,struct-name
                  ,@struct-slots)
                ,@(loop for (slot-name slot-type) in struct-slots
@@ -57,6 +56,11 @@
                                                  (:struct ,struct-name)
                                                  ,(a:make-keyword slot-name))
                                           value)))))
+               ,@(loop for signal-def in signals
+                       collect (destructuring-bind (signal-name &rest signal-properties)
+                                   (a:ensure-list signal-def)
+                                 `(defpsignal ,signal-name (,name)
+                                    ,@signal-properties)))
                (defun ,ctor-name ()
                  (let ((,ptr (memalloc '(:struct ,struct-name))))
                    (c-val ((,ptr (:struct ,struct-name)))
@@ -70,7 +74,7 @@
                ,@(loop for (property-name property-type reader writer) in properties
                        append (let ((accessor-name (a:symbolicate name '- (a:make-keyword property-name))))
                                 `((pozzo:defpmethod ,reader ((self ,name)) ,property-type
-                                    (pozzo:return-value (,accessor-name self)))
+                                    (pozzo:preturn (,accessor-name self)))
                                   (pozzo:defpmethod ,writer ((self ,name) (value ,property-type)) :void
                                     (setf (,accessor-name self) value))))))))))))
 
@@ -101,8 +105,8 @@
    (signal-table :initform (make-hash-table :test 'eq) :reader %signal-table-of)))
 
 
-(defmethod initialize-instance :after ((this extension-class) &key parent properties signals)
-  (with-slots ((this-parent parent) property-table signal-table) this
+(defmethod initialize-instance :after ((this extension-class) &key parent properties)
+  (with-slots ((this-parent parent) property-table) this
     (setf this-parent (or parent '%godot:object))
     (loop for (name type reader writer) in properties
           do (setf (gethash name property-table)
@@ -111,15 +115,7 @@
                                   :variant-kind (godot-extension-variant-kind type)
                                   :class type
                                   :reader reader
-                                  :writer writer)))
-    (loop for signal-def in signals
-          for (name . parameters) = (a:ensure-list signal-def)
-          do (setf (gethash name signal-table)
-                   (loop for (param-name param-type) in parameters
-                         collect (make-instance 'extension-property
-                                                :name param-name
-                                                :variant-kind (godot-extension-variant-kind param-type)
-                                                :class param-type))))))
+                                  :writer writer)))))
 
 
 (defclass extension-property ()
@@ -200,6 +196,20 @@
           (when virtual
             (setf (gethash bind (%vcall-table-of class)) vcall-function-name))
           t))
+      (error "Class ~A not found in extension ~A" class-name (%name-of extension)))))
+
+
+(defun %add-extension-class-signal (extension class-name signal-name
+                                    &key properties)
+  (with-slots (class-table) extension
+    (a:if-let ((class (gethash class-name class-table)))
+      (unless (gethash signal-name (%signal-table-of class))
+        (setf (gethash signal-name (%signal-table-of class))
+              (loop for (prop-name prop-type) in properties
+                    collect (make-instance 'extension-property
+                                           :name prop-name
+                                           :variant-kind (godot-extension-variant-kind prop-type)
+                                           :class prop-type))))
       (error "Class ~A not found in extension ~A" class-name (%name-of extension)))))
 
 
@@ -289,12 +299,12 @@
           :variant-values variant-init)))
 
 
-(defun return-value (value)
+(defun preturn (value)
   (declare (ignore value))
   (error "This is a stub. Never call this function outside of the lexical scope of defpmethod's body"))
 
 
-(defun expand-return-value (block-name result-ptr-var result-type result-value-var)
+(defun expand-preturn (block-name result-ptr-var result-type result-value-var)
   `(progn
      (unless (cffi:null-pointer-p ,result-ptr-var)
        (setf (c-ref ,result-ptr-var ,result-type) ,result-value-var))
@@ -380,8 +390,8 @@
                                        collect `(,name ,type)))
                          ,@(if (eq :void return-type)
                                body
-                               `((macrolet ((pozzo::return-value (result)
-                                              (expand-return-value ',fu-name ',result-var ',return-type result)))
+                               `((macrolet ((pozzo::preturn (result)
+                                              (expand-preturn ',fu-name ',result-var ',return-type result)))
                                    ,@body))))
                        (values))
                      ,@(if virtual
@@ -421,3 +431,24 @@
                                                           :ptrcall-function-name ',ptrcall-name))
                                                   :parameters ',(rest parameters)
                                                   :return-type ',return-type)))))))))
+
+
+(defmacro defpsignal (name (&rest classes) &body properties)
+  `(progn
+     ,@(loop for class-name in classes
+             append (let ((signal-emitter-name (a:symbolicate '@ class-name '+ name)))
+                      (multiple-value-bind (prop-names variant-names)
+                          (loop for (name type) in properties
+                                collect name into prop-names
+                                collect (a:make-gensym 'variant) into variant-names
+                                finally (return (values prop-names variant-names)))
+                        (a:with-gensyms (instance)
+                          `((eval-when (:compile-toplevel :load-toplevel :execute)
+                              (register-extension-class-signal ',name ',class-name
+                                                               :properties ',properties))
+                            (declaim (inline ,signal-emitter-name))
+                            (defun ,signal-emitter-name (,instance ,@prop-names)
+                              (with-variants (,@(loop for (prop-name prop-type) in properties
+                                                      for variant-name in variant-names
+                                                      collect `(,variant-name ,prop-type ,prop-name)))
+                                (emit-signal ,instance ',name ,@variant-names))))))))))

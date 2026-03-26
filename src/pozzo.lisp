@@ -475,6 +475,17 @@
       (error "Class ~A not found" class-name))))
 
 
+(defun register-extension-class-signal (signal-name class-name &rest keys &key properties &allow-other-keys)
+  (with-slots (extension-registry class-extension-table) *pozzo*
+    (a:if-let ((extension-name (gethash class-name class-extension-table)))
+      (let ((extension (gethash extension-name extension-registry)))
+        (when (apply #'%add-extension-class-signal extension class-name signal-name keys)
+          (when (pozzo-started-p)
+            (do-by-pozzo ()
+              (%register-signal signal-name properties class-name extension)))))
+      (error "Class ~A not found" class-name))))
+
+
 (declaim (inline emit-signal))
 (defun emit-signal (instance signal-name &rest variants)
   (c-with ((signal-name-variant %godot:variant)

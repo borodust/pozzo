@@ -252,3 +252,24 @@
 
 (defun format-secret-symbol (symbol &rest postfixes)
   (a:format-symbol '%%pozzo "~A:~A~~~{~A~}" (package-name (symbol-package symbol)) symbol postfixes))
+
+
+(defmacro with-variant ((var type value-ptr) &body body)
+  (a:with-gensyms (variant)
+    (a:once-only (value-ptr)
+      `(c-with ((,variant %godot:variant))
+         (initialize-variant-from-value (,variant &)
+                                        ,value-ptr
+                                        ',type)
+         (unwind-protect
+              (let ((,var (,variant &)))
+                ,@body)
+           (release-variant (,variant &)))))))
+
+
+(defmacro with-variants (bindings &body body)
+  (if bindings
+      `(with-variant ,(first bindings)
+         (with-godot-strings ,(rest bindings)
+           ,@body))
+      `(progn ,@body)))
