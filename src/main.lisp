@@ -54,42 +54,82 @@
 
 
 (defun run-with-godot-args (body args)
-  (destructuring-bind (&key ((:path project-path)) editor ((:godot-arguments godot-args)) &allow-other-keys) args
-    (multiple-value-bind (godot-arg-path godot-rest-args)
+  (destructuring-bind (&key ((:path project-path))
+                         ((:main main-loop-class))
+                         rendering-method
+                         editor
+                         ((:godot-arguments godot-args))
+                         ((:user-arguments user-args))
+                       &allow-other-keys)
+      args
+    (multiple-value-bind (godot-arg-path
+                          godot-arg-main
+                          godot-arg-projectless
+                          godot-arg-rendering-method
+                          godot-rest-args)
         (loop with godot-arg-path = nil
+              with godot-arg-main = nil
+              with godot-arg-projectless = nil
+              with godot-arg-rendering-method = nil
               with rest-args = godot-args
               while rest-args
               for switch = (first rest-args)
-              if (string= switch "--path")
-                do (setf godot-arg-path (second rest-args)
+              if (string= switch "--main-loop")
+                do (setf godot-arg-main (second rest-args)
                          rest-args (cddr rest-args))
+              else if (string= switch "--path")
+                     do (setf godot-arg-path (second rest-args)
+                              rest-args (cddr rest-args))
+              else if (string= switch "--rendering-method")
+                     do (setf godot-arg-rendering-method (second rest-args)
+                              rest-args (cddr rest-args))
+              else if (string= switch "--projectless")
+                     do (setf godot-arg-projectless t
+                              rest-args (cdr rest-args))
               else
                 collect switch into godot-rest-args
                 and do (setf rest-args (rest rest-args))
-              finally (return (values godot-arg-path godot-rest-args)))
+              finally (return (values godot-arg-path
+                                      godot-arg-main
+                                      godot-arg-projectless
+                                      godot-arg-rendering-method
+                                      godot-rest-args)))
       (let* ((project-path (or (and project-path (namestring project-path))
                                godot-arg-path))
-             (exec-path (namestring
-                         (fad:merge-pathnames-as-file (fad:pathname-as-directory project-path)
-                                                      ".pozzo/pozzo.sh")))
+             (main-loop (or (and main-loop-class (get-class-bind-name main-loop-class))
+                            godot-arg-main))
+             (exec-path (or (and project-path
+                                 (namestring
+                                  (fad:merge-pathnames-as-file (fad:pathname-as-directory project-path)
+                                                               ".pozzo/pozzo.sh")))
+                            (namestring (first (uiop:raw-command-line-arguments)))))
+             (projectlessp (or (and main-loop (not project-path)) godot-arg-projectless))
+             (rendering-method (or rendering-method godot-arg-rendering-method))
              (args (append
                     (list exec-path)
                     (when project-path
                       (list "--path" project-path))
+                    (when main-loop
+                      (list "--main-loop" main-loop))
                     (when editor
                       (list "-e"))
+                    (when projectlessp
+                      (list "--projectless"))
+                    (when rendering-method
+                      (list "--rendering-method" rendering-method))
                     godot-rest-args
-                    (list "--")))
+                    (list "--")
+                    user-args))
              (foreign-args
                (loop for arg in args
                      collect (cffi:foreign-string-alloc arg :encoding :utf-8)))
              (argc (length args)))
         (unwind-protect
              (cffi-c-ref:c-with ((argv :pointer :count argc))
-               (loop for foreign-arg in foreign-args
-                     for i from 0
-                     do (setf (argv i) foreign-arg))
-               (funcall body argc (argv &)))
+                                (loop for foreign-arg in foreign-args
+                                      for i from 0
+                                      do (setf (argv i) foreign-arg))
+                                (funcall body argc (argv &)))
           (loop for foreign-arg in foreign-args
                 do (cffi:foreign-string-free foreign-arg)))))))
 
@@ -215,9 +255,9 @@
 
 
 (defun enter (&rest args
-              &key ((:path project-path)) editor (blocking nil)
+              &key path editor main (blocking nil)
               &allow-other-keys)
-  (declare (ignore project-path editor))
+  (declare (ignore path editor main))
   (multiple-value-bind (pozzo-args godot-args user-args)
       (parse-command-line-arguments)
     (let ((pozzo-args (unix-opts:get-opts pozzo-args *pozzo-command-line-opts*)))

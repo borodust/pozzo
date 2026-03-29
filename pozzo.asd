@@ -24,13 +24,15 @@
                (:file "main")))
 
 
-(asdf:defsystem :pozzo/example
-  :description "Pozzo example project"
+(asdf:defsystem :pozzo/examples
+  :description "Pozzo examples"
   :version "1.0.0"
   :author "Pavel Korolev"
   :mailto "dev@borodust.org"
   :license "MIT"
   :depends-on (:alexandria :pozzo)
-  :pathname "example/"
-  :serial t
-  :components ((:file "example")))
+  :pathname "examples/"
+  :components ((:module "sprite"
+                :components ((:file "example")))
+               (:module "canvas"
+                :components ((:file "example")))))

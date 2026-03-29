@@ -8,14 +8,9 @@ func _run() -> void:
 	print("Exec Path:", OS.get_executable_path())
 	print("Cmd Line:", OS.get_cmdline_args())
 	print("User Cmd Line:", OS.get_cmdline_user_args())
-	
+
 	var	obj = HelloGodot.new()
 	print("Object:", obj)
 	print("Amplitude Before:", obj.amplitude)
 	obj.amplitude = 25.0
 	print("Amplitude After:", obj.amplitude)
-
-	print("Variant Call:", obj.string_length("HEI"))
-	
-	var hello: HelloGodot = obj
-	print("Ptr Call:", hello.string_length("HEYO"))

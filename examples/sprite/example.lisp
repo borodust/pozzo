@@ -1,14 +1,14 @@
-(cl:defpackage #:pozzo.example
+(cl:defpackage #:pozzo.example.sprite
   (:use #:cl)
   (:export #:run))
-(cl:in-package #:pozzo.example)
+(cl:in-package #:pozzo.example.sprite)
 
 ;;
 ;; Adapted from
 ;; https://docs.godotengine.org/en/4.6/tutorials/scripting/gdextension/gdextension_c_example.html#a-demo-project
 ;;
 
-(pozzo:defpextension example)
+(pozzo:defpextension sprite-example)
 
 
 (pozzo:defpclass hello-godot
@@ -22,10 +22,11 @@
           :exposed t)
    (last-consed %godot:int
                 :initform -1))
+  (:string-name "HelloGodot")
   (:inherit %godot:sprite-2d)
   (:signals (position-changed (new-position %godot:vector-2))
             (bytes-consed (new-ceiling %godot:int)))
-  (:extension example))
+  (:extension sprite-example))
 
 
 (pozzo:defpmethod (%process :virtual) ((self hello-godot) (delta %godot:float)) :void
@@ -53,9 +54,5 @@
     (@hello-godot+bytes-consed self (consed &))))
 
 
-(pozzo:defpmethod string-length ((self hello-godot) (str %godot:string)) %godot:int
-  (pozzo:preturn (length (pozzo::godot-string-to-lisp str))))
-
-
 (defun run (&key editor)
-  (pozzo:enter :path (asdf:system-relative-pathname :pozzo/example "example/project/") :editor editor))
+  (pozzo:enter :path (asdf:system-relative-pathname :pozzo/examples "examples/sprite/project/") :editor editor))

@@ -6,15 +6,21 @@
 
 (defmacro defpclass (name &body slots-and-opts)
   (destructuring-bind (slots &rest opts) slots-and-opts
-    (destructuring-bind (&key extension properties signals inherit godot) (a:alist-plist opts)
-      (declare (ignore properties godot))
+    (destructuring-bind (&key extension signals inherit level
+                           ((:string-name (string-name)) '(nil)))
+        (a:alist-plist opts)
       (let* ((extension-name (first extension))
              (parent-name (first inherit))
              (struct-name (format-secret-symbol name 'class-struct))
-             (bind-name (format nil "~{~A~}"
-                                (mapcar #'nstring-capitalize
-                                        (ppcre:split "\\W+"
-                                                     (substitute #\_ #\% (string name))))))
+             (bind-name (or string-name
+                            (format nil "~{~A~}"
+                                    (mapcar #'nstring-capitalize
+                                            (ppcre:split "\\W+"
+                                                         (substitute #\_ #\%
+                                                                     (format nil "~A-~A"
+                                                                             (package-name (symbol-package name))
+                                                                             (symbol-name name))))))))
+             (level (first level))
              (ctor-name (format-secret-symbol name 'class-constructor))
              (dtor-name (format-secret-symbol name 'class-destructor)))
         (multiple-value-bind (struct-slots initforms properties)
@@ -38,7 +44,8 @@
                                            :struct ',struct-name
                                            :properties ',properties
                                            :constructor ',ctor-name
-                                           :destructor ',dtor-name))
+                                           :destructor ',dtor-name
+                                           :level ,level))
                (cffi:defcstruct ,struct-name
                  ,@struct-slots)
                ,@(loop for (slot-name slot-type) in struct-slots
@@ -79,9 +86,28 @@
                                     (setf (,accessor-name self) value))))))))))))
 
 
+(defun level->godot (pozzo-level)
+  (ecase pozzo-level
+    (:core :initialization-core)
+    (:servers :initialization-servers)
+    (:scene :initialization-scene)
+    (:editor :initialization-editor)
+    (:max :max-initialization-level)))
+
+
+(defun level->pozzo (godot-level)
+  (ecase godot-level
+    (:initialization-core :core)
+    (:initialization-servers :servers)
+    (:initialization-scene :scene)
+    (:initialization-editor :editor)
+    (:max-initialization-level :max)))
+
+
 (defclass extension ()
   ((name :initarg :name :reader %name-of)
    (path :initarg :path :reader %path-of)
+   (level :reader %level-of)
    (class-table :initform (make-hash-table :test 'eq) :reader %class-table-of)
    (class-library-pointer :type cffi:foreign-pointer
                           :initform (cffi:null-pointer)
@@ -92,10 +118,16 @@
    (level-deinit-callback :initarg :level-deinit :reader level-deinitializer-name-of)))
 
 
+(defmethod initialize-instance :after ((this extension) &key (level :scene))
+  (with-slots ((this-level level)) this
+    (setf this-level (level->godot level))))
+
+
 (defclass extension-class ()
   ((name :initarg :name :reader %name-of)
    (parent :initarg :parent :reader %parent-name-of)
    (bind :initarg :bind :reader %bind-of)
+   (level :reader %level-of)
    (struct :initarg :struct :reader %struct-name-of)
    (constructor :initarg :constructor :reader %constructor-name-of)
    (destructor :initarg :destructor :reader %destructor-name-of)
@@ -105,8 +137,9 @@
    (signal-table :initform (make-hash-table :test 'eq) :reader %signal-table-of)))
 
 
-(defmethod initialize-instance :after ((this extension-class) &key parent properties)
-  (with-slots ((this-parent parent) property-table) this
+(defmethod initialize-instance :after ((this extension-class)
+                                       &key parent properties (level :scene))
+  (with-slots ((this-parent parent) (this-level level) property-table) this
     (setf this-parent (or parent '%godot:object))
     (loop for (name type reader writer) in properties
           do (setf (gethash name property-table)
@@ -115,7 +148,8 @@
                                   :variant-kind (godot-extension-variant-kind type)
                                   :class type
                                   :reader reader
-                                  :writer writer)))))
+                                  :writer writer)))
+    (setf this-level (level->godot level))))
 
 
 (defclass extension-property ()
@@ -154,9 +188,11 @@
 
 
 
-(defun %add-extension-class (extension class-name &rest initargs &key &allow-other-keys)
+(defun %add-extension-class (extension class-name &rest initargs &key level &allow-other-keys)
   (with-slots (class-table) extension
     (unless (gethash class-name class-table)
+      (unless level
+        (setf (getf initargs :level) (level->pozzo (%level-of extension))))
       (setf
        (gethash class-name class-table)
        (apply #'make-instance 'extension-class
@@ -213,34 +249,49 @@
       (error "Class ~A not found in extension ~A" class-name (%name-of extension)))))
 
 
-(defmacro defpextension (name)
+(defmacro defpextension (name &body options)
   (let ((init-cb-name (format-secret-symbol name 'ext-init))
         (level-init-cb-name (format-secret-symbol name 'ext-level-init))
-        (level-deinit-cb-name (format-secret-symbol name 'ext-level-deinit)))
-    `(progn
-       (eval-when (:compile-toplevel :load-toplevel :execute)
-         (register-extension ',name :init ',init-cb-name
-                                    :level-init ',level-init-cb-name
-                                    :level-deinit ',level-deinit-cb-name))
-       (defprotocallback (,level-init-cb-name
-                          %gdext:initialize-callback)
-           (class-library-ptr init-level)
-         (shout-errors
-           (initialize-extension-level ',name class-library-ptr init-level)))
-       (defprotocallback (,level-deinit-cb-name
-                          %gdext:deinitialize-callback)
-           (class-library-ptr deinit-level)
-         (shout-errors
-           (release-extension-level ',name class-library-ptr deinit-level)))
-       (defprotocallback (,init-cb-name %gdext:initialization-function)
-           (interface-get-proc-address class-library-ptr init-struct)
-         (declare (ignore interface-get-proc-address))
-         (shout-errors
-           (if (initialize-extension ',name class-library-ptr init-struct) 1 0))))))
+        (level-deinit-cb-name (format-secret-symbol name 'ext-level-deinit))
+        (props (a:alist-plist options)))
+    (destructuring-bind (&key ((:level (level)) '(:scene))
+                           ((:init-level (init-fu)) '(nil))
+                           ((:fini-level (fini-fu)) '(nil)))
+        props
+      (a:with-gensyms (cb-level cb-library-ptr)
+        `(progn
+           (eval-when (:compile-toplevel :load-toplevel :execute)
+             (register-extension ',name :init ',init-cb-name
+                                        :level ,level
+                                        :level-init ',level-init-cb-name
+                                        :level-deinit ',level-deinit-cb-name))
+           (defprotocallback (,level-init-cb-name
+                              %gdext:initialize-callback)
+               (,cb-library-ptr ,cb-level)
+             (shout-errors
+               (initialize-extension-level ',name
+                                           ,cb-library-ptr
+                                           ,cb-level
+                                           ,init-fu)))
+           (defprotocallback (,level-deinit-cb-name
+                              %gdext:deinitialize-callback)
+               (,cb-library-ptr ,cb-level)
+             (shout-errors
+               (release-extension-level ',name
+                                        ,cb-library-ptr
+                                        ,cb-level
+                                        ,fini-fu)))
+           (defprotocallback (,init-cb-name %gdext:initialization-function)
+               (interface-get-proc-address ,cb-library-ptr init-struct)
+             (declare (ignore interface-get-proc-address))
+             (shout-errors
+               (if (initialize-extension ',name ,cb-library-ptr init-struct) 1 0))))))))
 
 
-(defmacro do-extension-classes ((class-var extension) &body body)
+(defmacro do-extension-classes ((class-var extension &key level) &body body)
   `(loop for ,class-var being the hash-value of (%class-table-of ,extension)
+         ,@(when level
+             `(when (eq ,level (%level-of ,class-var))))
          do (progn ,@body)))
 
 

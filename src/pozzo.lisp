@@ -82,21 +82,39 @@
     (lambda () ,@body)))
 
 
+;; FIXME: make sure that symbols here such as classes and methods are separate:
+;; technically class and method can have the same name, but bind string-name name
+;; could be different
+(defmacro %cache-string-name (symbol string &optional case)
+  (a:once-only (symbol string)
+    `(with-slots (string-name-cache) *pozzo*
+       ;; we use symbol to allow fastest lookup with 'eq test
+       ;; this leads to slight overhead for symbols with the same symbol-name
+       ;; but it's 8 bytes per synonym, because Godot also keeps track of string-name synonyms
+       (a:if-let ((cached (gethash ,symbol string-name-cache)))
+         (the cffi:foreign-pointer
+              cached)
+         (let ((string-name-ptr (memalloc '%godot:string-name)))
+           (initialize-godot-string-name string-name-ptr (the string ,string) ,@(when case (list case)))
+           (locally (declare #+sbcl (sb-ext:muffle-conditions sb-ext:compiler-note))
+             ;; we ignore SAP to pointer conversion (boxing) here
+             ;; it's gonna happen once per cached symbol - no problem
+             (setf (gethash ,symbol string-name-cache) string-name-ptr)))))))
+
+
 (declaim (inline symbol-string-name))
 (defun symbol-string-name (symbol)
-  (with-slots (string-name-cache) *pozzo*
-    ;; we use symbol to allow fastest lookup with 'eq test
-    ;; this leads to slight overhead for symbols with the same symbol-name
-    ;; but it's 8 bytes per synonym, because Godot also keeps track of string-name synonyms
-    (a:if-let ((cached (gethash symbol string-name-cache)))
-      (the cffi:foreign-pointer
-           cached)
-      (let ((string-name-ptr (memalloc '%godot:string-name)))
-        (initialize-godot-string-name string-name-ptr (symbol-name symbol) :snake)
-        (locally (declare #+sbcl (sb-ext:muffle-conditions sb-ext:compiler-note))
-          ;; we ignore SAP to pointer conversion (boxing) here
-          ;; it's gonna happen once per cached symbol - no problem
-          (setf (gethash symbol string-name-cache) string-name-ptr))))))
+  (%cache-string-name symbol (symbol-name symbol) :snake))
+
+
+(declaim (inline class-string-name))
+(defun class-string-name (class-name)
+  (%cache-string-name class-name (get-class-bind-name class-name)))
+
+
+(declaim (inline method-string-name))
+(defun method-string-name (class-name method-name)
+  (%cache-string-name method-name (get-method-bind-name class-name method-name)))
 
 
 (defun register-extension (extension-name &rest keys &key &allow-other-keys)
@@ -181,7 +199,6 @@
 (defprotocallback (create-extension-class-instance
                    %gdext:class-create-instance-2)
     (class-info notify-postinitialize-p)
-  (declare (ignore notify-postinitialize-p))
   (shout-errors
    (let ((class (%find-extension-class-by-metadata-id (cffi:pointer-address class-info))))
      (c-val ((class-info (:struct pozzo-class-info)))
@@ -225,68 +242,77 @@
   (values))
 
 
-(defun initialize-extension-level (extension-name class-library-ptr init-level)
+(defun initialize-extension-level (extension-name
+                                   class-library-ptr
+                                   init-level
+                                   init-fu)
   (let ((extension (get-extension extension-name)))
-    (shout "Extension ~A: ~A" (%name-of extension) init-level)
-    (when (eq init-level :initialization-scene)
-      (with-slots (extension-registry) *pozzo*
-        (do-extension-classes (extension-class extension)
-          (c-with ((creation-info %gdext:class-creation-info-5))
-            (let ((class-info (make-pozzo-class-info (%name-of extension-class)
-                                                     (%parent-name-of extension-class))))
-              (setf (creation-info :is-virtual) 0
-                    (creation-info :is-abstract) 0
-                    (creation-info :is-exposed) 1
-                    (creation-info :is-runtime) 0
-                    (creation-info :icon-path) (cffi:null-pointer)
-                    (creation-info :set-func) (cffi:null-pointer)
-                    (creation-info :get-func) (cffi:null-pointer)
-                    (creation-info :get-property-list-func) (cffi:null-pointer)
-                    (creation-info :free-property-list-func) (cffi:null-pointer)
-                    (creation-info :property-can-revert-func) (cffi:null-pointer)
-                    (creation-info :property-get-revert-func) (cffi:null-pointer)
-                    (creation-info :validate-property-func) (cffi:null-pointer)
-                    (creation-info :notification-func) (cffi:null-pointer)
-                    (creation-info :to-string-func) (cffi:null-pointer)
-                    (creation-info :reference-func) (cffi:null-pointer)
-                    (creation-info :unreference-func) (cffi:null-pointer)
-                    (creation-info :create-instance-func) (get-protocallback 'create-extension-class-instance)
-                    (creation-info :free-instance-func) (get-protocallback 'free-extension-class-instance)
-                    (creation-info :recreate-instance-func) (cffi:null-pointer)
-                    (creation-info :get-virtual-func) (cffi:null-pointer)
-                    (creation-info :get-virtual-call-data-func) (get-protocallback 'get-extension-class-virtual-call-data)
-                    (creation-info :call-virtual-with-data-func) (get-protocallback 'call-extension-class-virtual-with-data)
-                    (creation-info :class-userdata) class-info)
-              (c-val ((class-info (:struct pozzo-class-info)))
-                (%register-extension-class-metadata (cffi:pointer-address (class-info &)) extension-class)
-                (%gdext:classdb-register-extension-class5 class-library-ptr
-                                                                    (class-info :class-name &)
-                                                                    (class-info :parent-name &)
-                                                                    (creation-info &)))))
-          (loop for method being the hash-value of (%method-table-of extension-class)
-                unless (virtualp method)
-                  do (%register-method method (%name-of extension-class) extension))
-          (loop for property being the hash-value of (%property-table-of extension-class)
-                do (%register-property property (%name-of extension-class) extension))
-          (loop for signal-name being the hash-key of (%signal-table-of extension-class)
-                  using (hash-value signal-properties)
-                do (%register-signal signal-name signal-properties (%name-of extension-class) extension))))))
+    (shout "Extension ~S: ~A" (%name-of extension) init-level)
+
+    (with-slots (extension-registry) *pozzo*
+      (do-extension-classes (extension-class extension :level init-level)
+        (c-with ((creation-info %gdext:class-creation-info-5))
+          (let ((class-info (make-pozzo-class-info (%name-of extension-class)
+                                                   (%parent-name-of extension-class))))
+            (setf (creation-info :is-virtual) 0
+                  (creation-info :is-abstract) 0
+                  (creation-info :is-exposed) 1
+                  (creation-info :is-runtime) 0
+                  (creation-info :icon-path) (cffi:null-pointer)
+                  (creation-info :set-func) (cffi:null-pointer)
+                  (creation-info :get-func) (cffi:null-pointer)
+                  (creation-info :get-property-list-func) (cffi:null-pointer)
+                  (creation-info :free-property-list-func) (cffi:null-pointer)
+                  (creation-info :property-can-revert-func) (cffi:null-pointer)
+                  (creation-info :property-get-revert-func) (cffi:null-pointer)
+                  (creation-info :validate-property-func) (cffi:null-pointer)
+                  (creation-info :notification-func) (cffi:null-pointer)
+                  (creation-info :to-string-func) (cffi:null-pointer)
+                  (creation-info :reference-func) (cffi:null-pointer)
+                  (creation-info :unreference-func) (cffi:null-pointer)
+                  (creation-info :create-instance-func) (get-protocallback 'create-extension-class-instance)
+                  (creation-info :free-instance-func) (get-protocallback 'free-extension-class-instance)
+                  (creation-info :recreate-instance-func) (cffi:null-pointer)
+                  (creation-info :get-virtual-func) (cffi:null-pointer)
+                  (creation-info :get-virtual-call-data-func) (get-protocallback 'get-extension-class-virtual-call-data)
+                  (creation-info :call-virtual-with-data-func) (get-protocallback 'call-extension-class-virtual-with-data)
+                  (creation-info :class-userdata) class-info)
+            (c-val ((class-info (:struct pozzo-class-info)))
+              (%register-extension-class-metadata (cffi:pointer-address (class-info &)) extension-class)
+              (%gdext:classdb-register-extension-class5 class-library-ptr
+                                                        (class-info :class-name &)
+                                                        (class-info :parent-name &)
+                                                        (creation-info &)))))
+        (loop for method being the hash-value of (%method-table-of extension-class)
+              unless (virtualp method)
+                do (%register-method method (%name-of extension-class) extension))
+        (loop for property being the hash-value of (%property-table-of extension-class)
+              do (%register-property property (%name-of extension-class) extension))
+        (loop for signal-name being the hash-key of (%signal-table-of extension-class)
+                using (hash-value signal-properties)
+              do (%register-signal signal-name signal-properties (%name-of extension-class) extension))))
+    (when init-fu
+      (funcall init-fu extension-name (level->pozzo init-level))))
   (values))
 
 
-(defun release-extension-level (extension-name class-library-ptr deinit-level)
+(defun release-extension-level (extension-name
+                                class-library-ptr
+                                deinit-level
+                                deinit-fu)
   (let ((extension (get-extension extension-name)))
-    (when (eq deinit-level :initialization-scene)
-      (do-extension-classes (extension-class extension)
-        ;; FIXME: release class metadata
-        (with-godot-string-name (class-string-name (%name-of extension-class) :pascal)
-          (c-with ((class-exists %godot:bool))
-            (%godot:class-db+class-exists (%godot:class-db)
-                                          (class-exists &)
-                                          class-string-name)
-            (unless (zerop class-exists)
-              (%gdext:classdb-unregister-extension-class class-library-ptr
-                                                                   class-string-name)))))))
+    (do-extension-classes (extension-class extension :level deinit-level)
+      ;; FIXME: release class metadata
+      (let ((class-string-name (class-string-name (%name-of extension-class))))
+        (c-with ((class-exists %godot:bool))
+          (%godot:class-db+class-exists (%godot:class-db)
+                                        (class-exists &)
+                                        class-string-name)
+          (unless (zerop class-exists)
+            (%gdext:classdb-unregister-extension-class class-library-ptr
+                                                       class-string-name)))))
+    (when deinit-fu
+      (funcall deinit-fu extension-name (level->pozzo deinit-level))))
   (values))
 
 
@@ -294,7 +320,7 @@
   (let ((extension (get-extension extension-name)))
     (%update-class-library-pointer class-library-ptr extension)
     (c-val ((init-struct %gdext:initialization))
-      (setf (init-struct :minimum-initialization-level) :initialization-scene
+      (setf (init-struct :minimum-initialization-level) (%level-of extension)
             (init-struct :userdata) class-library-ptr
             (init-struct :initialize) (get-protocallback (level-initializer-name-of extension))
             (init-struct :deinitialize) (get-protocallback (level-deinitializer-name-of extension)))))
@@ -318,7 +344,7 @@
     (let* ((method-parameters (parameters-of extension-class-method))
            (return-type (return-type-of extension-class-method))
            (argc (length method-parameters)))
-      (with-godot-string-name (class-string-name (%name-of extension-class) :pascal)
+      (let ((class-string-name (class-string-name (%name-of extension-class))))
         (c-with ((method-info %gdext:class-method-info)
                  (arguments-info %gdext:property-info :count argc)
                  (arguments-metadata %gdext:class-method-argument-metadata :count argc)
@@ -340,11 +366,7 @@
                (%godot:int :int-is-int64)
                (%godot:float :real-is-double)
                (t :none))))
-          (with-godot-string-name (method-string-name
-                                   (substitute
-                                    #\_ #\%
-                                    (string (%name-of extension-class-method)))
-                                   :snake)
+          (let ((method-string-name (method-string-name class-name (%name-of extension-class-method))))
             (shout "Registering method ~A of class ~A"
                    (godot-string-name-to-lisp method-string-name)
                    (godot-string-name-to-lisp class-string-name))
@@ -387,17 +409,16 @@
 
 (defun %register-property (extension-property class-name extension)
   (a:if-let ((extension-class (gethash class-name (%class-table-of extension))))
-    (with-godot-string-name (class-string-name (get-class-bind-name class-name))
+    (let ((class-string-name (class-string-name class-name)))
       (c-with ((property-info %gdext:property-info))
         (initialize-godot-property (property-info &)
                                    (%name-of extension-property)
                                    (variant-kind-of extension-property))
-        (with-godot-string-names ((writer-string-name (get-method-bind-name
-                                                       class-name
-                                                       (writer-name-of extension-property)))
-                                  (reader-string-name (get-method-bind-name
-                                                       class-name
-                                                       (reader-name-of extension-property))))
+        (let ((writer-string-name (method-string-name class-name
+                                                      (writer-name-of extension-property)))
+              (reader-string-name (method-string-name
+                                   class-name
+                                   (reader-name-of extension-property))))
           (shout "Registering property ~A of ~A (reader: ~A, writer: ~A)"
                  (godot-string-name-to-lisp (property-info :name))
                  (godot-string-name-to-lisp class-string-name)
@@ -415,8 +436,8 @@
 
 (defun %register-signal (signal-name signal-properties class-name extension)
   (a:if-let ((extension-class (gethash class-name (%class-table-of extension))))
-    (with-godot-string-names ((class-string-name (get-class-bind-name class-name))
-                              (signal-string-name signal-name :snake))
+    (let ((class-string-name (class-string-name class-name))
+          (signal-string-name (symbol-string-name signal-name)))
       (let ((prop-count (length signal-properties)))
         (c-with ((properties-info %gdext:property-info :count prop-count))
           (loop for property in signal-properties
@@ -449,7 +470,7 @@
 
 
 (defun register-extension-class (class-name extension-name &rest initargs
-                                 &key bind &allow-other-keys)
+                                 &key bind level &allow-other-keys)
   (with-slots (extension-registry class-extension-table) *pozzo*
     (a:if-let ((extension (gethash extension-name extension-registry)))
       (when (apply #'%add-extension-class extension class-name initargs)
@@ -510,3 +531,16 @@
        (prog1 (c-ref (get-variant-internal-ptr ,result-variant) %godot:error)
          (release-variant (,signal-name-variant &))
          (release-variant (,result-variant &))))))
+
+
+(declaim (inline construct))
+(defun construct (class-name)
+  (with-godot-string-name (class-string-name (the string (get-class-bind-name class-name)))
+    (let ((obj-ptr (%gdext:classdb-construct-object2 class-string-name)))
+      (%godot:object+notification obj-ptr 0 0)
+      obj-ptr)))
+
+
+(declaim (inline destruct))
+(defun destruct (object-ptr)
+  (%gdext:object-destroy object-ptr))

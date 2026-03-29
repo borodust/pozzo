@@ -34,7 +34,17 @@
            #:symbol-string-name
 
            #:with-variant
-           #:with-variants))
+           #:with-variants
+           #:with-godot-string
+           #:with-godot-strings
+           #:with-godot-string-name
+           #:with-godot-string-names
+
+           #:memalloc
+           #:memfree
+
+           #:construct
+           #:destruct))
 
 
 (cl:defpackage #:%%pozzo
