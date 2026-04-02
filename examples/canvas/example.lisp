@@ -85,7 +85,7 @@
          (b (abs (- r g)))
          (radius (+ 100 (* 50 (sin (* 0.1 time)))))
          (filled 1)
-         (width 0)
+         (width -1)
          (antialiased 1))
     (pozzo:c-with ((pos %godot:vector-2)
                    (col %godot:color))
