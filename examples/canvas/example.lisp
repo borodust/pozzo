@@ -89,9 +89,14 @@
          (antialiased 1))
     (pozzo:c-with ((pos %godot:vector-2)
                    (col %godot:color))
-      (%godot:make-vector-2@3 (pos &) (float x 0d0) (float y 0d0))
-      (%godot:make-color@3 (col &) (float r 0d0) (float g 0d0) (float b 0d0))
 
+      (%godot:make-color@3 (col &) 0.2d0 0.25d0 0.3d0)
+      (%godot:rendering-server+set-default-clear-color
+       (%godot:rendering-server)
+       (col &))
+
+      (%godot:make-color@3 (col &) (float r 0d0) (float g 0d0) (float b 0d0))
+      (%godot:make-vector-2@3 (pos &) (float x 0d0) (float y 0d0))
       (%godot:canvas-item+draw-circle (pozzo:unwrap self)
                                       (pos &)
                                       radius
