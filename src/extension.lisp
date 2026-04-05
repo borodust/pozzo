@@ -221,13 +221,11 @@
                                      :ptrcall-function-name ptrcall-function-name
                                      :vcall-function-name vcall-function-name
                                      :return-type (make-instance 'extension-property
-                                                                 :variant-kind (if (eq :void return-type)
-                                                                                   :nil
-                                                                                   (godot-extension-variant-kind return-type)))
+                                                                 :variant-kind (get-class-variant-kind return-type))
                                      :parameters (loop for (name type) in parameters
                                                        collect (make-instance 'extension-property
                                                                               :name name
-                                                                              :variant-kind (godot-extension-variant-kind type))))))
+                                                                              :variant-kind (get-class-variant-kind type))))))
           (setf (gethash method-name (%method-table-of class)) method)
           (when virtual
             (setf (gethash bind (%vcall-table-of class)) vcall-function-name))
@@ -350,15 +348,28 @@
           :variant-values variant-init)))
 
 
-(defun preturn (value)
+(defmacro preturn (value)
   (declare (ignore value))
-  (error "This is a stub. Never call this function outside of the lexical scope of defpmethod's body"))
+  (error "This is a stub. Never call this macro outside of the lexical scope of defpmethod's body"))
+
+
+(defmacro preturn-with ((result-ptr-var) &body body)
+  (declare (ignore result-ptr-var body))
+  (error "This is a stub. Never call this macro outside of the lexical scope of defpmethod's body"))
 
 
 (defun expand-preturn (block-name result-ptr-var result-type result-value-var)
   `(progn
      (unless (cffi:null-pointer-p ,result-ptr-var)
        (setf (c-ref ,result-ptr-var ,result-type) ,result-value-var))
+     (return-from ,block-name (values))))
+
+
+(defun expand-preturn-with (block-name result-ptr-var result-value-ptr-var result-value-body)
+  `(progn
+     (unless (cffi:null-pointer-p ,result-ptr-var)
+       (let ((,result-value-ptr-var ,result-ptr-var))
+         ,@result-value-body))
      (return-from ,block-name (values))))
 
 
@@ -442,7 +453,9 @@
                          ,@(if (eq :void return-type)
                                body
                                `((macrolet ((pozzo::preturn (result)
-                                              (expand-preturn ',fu-name ',result-var ',return-type result)))
+                                              (expand-preturn ',fu-name ',result-var ',return-type result))
+                                            (pozzo::preturn-with ((result-ptr-var) &body body)
+                                              (expand-preturn-with ',fu-name ',result-var result-ptr-var body)))
                                    ,@body))))
                        (values))
                      ,@(if virtual

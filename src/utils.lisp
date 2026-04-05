@@ -24,9 +24,15 @@
 
 
 (defun get-class-variant-kind (class-name)
-  (if (gethash class-name *pozzo-class-bind-map*)
-      :object
-      (godot-extension-variant-kind class-name)))
+  (cond
+    ((gethash class-name *pozzo-class-bind-map*)
+     :object)
+    ((or (eq class-name :pointer) (and (listp class-name) (eq :pointer (first class-name))))
+     :int)
+    ((eq :void class-name)
+     :nil)
+    (t
+     (godot-extension-variant-kind class-name))))
 
 
 (defun get-method-bind-name (class-name method-name)

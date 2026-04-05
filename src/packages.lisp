@@ -18,9 +18,11 @@
 
            #:defpextension
            #:defpclass
+           #:defpscript
            #:defpsignal
            #:defpmethod
            #:preturn
+           #:preturn-with
 
            #:emit-signal
            #:unwrap
@@ -35,8 +37,12 @@
 
            #:with-variant
            #:with-variants
+           #:initialize-godot-string
+           #:release-godot-string
            #:with-godot-string
            #:with-godot-strings
+           #:initialize-godot-string-name
+           #:release-godot-string-name
            #:with-godot-string-name
            #:with-godot-string-names
 
