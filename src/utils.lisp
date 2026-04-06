@@ -66,6 +66,12 @@
       (t (%expand-body `(cffi:foreign-type-size ,type))))))
 
 
+(cffi:defcfun (memset "memset") (:pointer :void)
+  (data-ptr (:pointer :void))
+  (value :int)
+  (byte-count :size))
+
+
 (declaim (inline memfree))
 (defun memfree (ptr)
   (%gdext:mem-free2 ptr 0))
@@ -78,8 +84,11 @@
 (defmacro c-with ((&rest bindings) &body body)
   (labels ((%expand-c-with (bindings body)
              (if bindings
-                 (destructuring-bind (var type &key count) (first bindings)
+                 (destructuring-bind (var type &key count zero) (first bindings)
                    `(let ((,var (memalloc ',type ,@(when count (list count)))))
+                      ,@(when zero
+                          `(memset ,var 0 (* (cffi:foreign-type-size type)
+                                             ,(or count 1))))
                       (unwind-protect
                            (c-val ((,var ,type))
                              ,(%expand-c-with (rest bindings) body))
@@ -279,3 +288,49 @@
          (with-variants ,(rest bindings)
            ,@body))
       `(progn ,@body)))
+
+
+(declaim (inline construct))
+(defun construct (class-name)
+  (with-godot-string-name (class-string-name (the string (get-class-bind-name class-name)))
+    (let ((obj-ptr (%gdext:classdb-construct-object2 class-string-name)))
+      (%godot:object+notification obj-ptr %godot:+object+notification-postinitialize+ 0)
+      obj-ptr)))
+
+
+(declaim (inline destruct))
+(defun destruct (object-ptr)
+  (%gdext:object-destroy object-ptr))
+
+
+(defun prepare-method-name-and-opts (name-and-opts)
+  (destructuring-bind (name &rest opts) (a:ensure-list name-and-opts)
+    (list* name (loop with opt = (first opts)
+                      and rest = (rest opts)
+                      while opt
+                      append (if (member opt '(:pure :virtual :static :const))
+                                 (prog1 (list opt t)
+                                   (setf opt (first rest)
+                                         rest (rest rest)))
+                                 (prog1 (list opt (first rest))
+                                   (setf opt (cdar rest)
+                                         rest (cddr rest))))))))
+
+
+(defun prepare-arguments (args-var parameters)
+  (multiple-value-bind (args arg-types arg-init arg-names variant-init)
+      (loop for (name type) in parameters
+            for i from 0
+            collect `(cffi:mem-aref ,args-var :pointer ,i) into arg-init
+            collect `(get-variant-internal-ptr
+                      (cffi:mem-aref ,args-var :pointer ,i))
+              into variant-init
+            collect name into arg-names
+            collect type into arg-types
+            collect (list name type) into args
+            finally (return (values args arg-types arg-init arg-names variant-init)))
+    (list :args args
+          :arg-names arg-names
+          :arg-types arg-types
+          :arg-values arg-init
+          :variant-values variant-init)))

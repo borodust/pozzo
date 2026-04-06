@@ -6,7 +6,8 @@
   (:import-from #:%gdext.util
                 #:defprotocallback
                 #:get-protocallback
-                #:funcall-prototype)
+                #:funcall-prototype
+                #:defcfunproto)
   (:import-from #:%godot.util
                 #:bind-gdext-interface
                 #:bind-godot-constants

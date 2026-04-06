@@ -10,12 +10,11 @@
 (defclass canvas-example () ())
 
 
-(defun initialize (extension-name level)
-  (declare (ignore extension-name level)))
+(defun initialize (level)
+  (declare (ignore level)))
 
 
-(defun finalize (extension-name level)
-  (declare (ignore extension-name))
+(defun finalize (level)
   (when (eq level :scene)
     (setf *canvas-example* nil)))
 
@@ -41,9 +40,9 @@
   (pozzo:c-with ((root %godot:window))
     (%godot:scene-tree+get-root (pozzo:unwrap self) (root &))
 
-    (pozzo:c-with ((zero-pos %godot:vector-2))
-      (%godot:make-vector-2@3 (zero-pos &) 0d0 0d0)
-      (%godot:node-2d+set-position root (zero-pos &))
+    (pozzo:c-with ((zero-pos %godot:vector-2i))
+      (%godot:make-vector-2i@3 (zero-pos &) 0 0)
+      (%godot:window+set-position root (zero-pos &))
 
       (let ((world (pozzo:construct '%godot:node-2d)))
         (pozzo:with-godot-string-name (name "World")

@@ -11,8 +11,8 @@
     (userdata init-level)
   (declare (ignore userdata))
   (shout "LibGodot: ~A" init-level)
-  (when (eq init-level :initialization-scene)
-    (initialize-pozzo-extensions))
+  (when (eq :initialization-scene init-level)
+    (initialize-pozzo-extensions init-level))
   (values))
 
 
@@ -32,7 +32,7 @@
             (godot-version :patch)))
 
   (c-val ((init-record-ptr %gdext:initialization))
-    (setf (init-record-ptr :minimum-initialization-level) :initialization-scene
+    (setf (init-record-ptr :minimum-initialization-level) :initialization-core
           (init-record-ptr :userdata) (cffi:null-pointer)
           (init-record-ptr :initialize) (get-protocallback 'level-init-func)
           (init-record-ptr :deinitialize) (get-protocallback 'level-deinit-func))))

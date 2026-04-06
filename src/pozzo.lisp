@@ -5,6 +5,7 @@
   ((godot-instance :initform nil)
    (extension-registry :initform (make-hash-table :test 'eq))
    (class-extension-table :initform (make-hash-table :test 'eq))
+   (script-extension-table :initform (make-hash-table :test 'eq))
    (class-metadata-table :initform (make-hash-table :test 'eql))
    (wrapper-registry :initform (make-hash-table :test 'eql :size 127))
    (module-registry :initform (make-hash-table :test 'eq))
@@ -27,11 +28,12 @@
     (error "Pozzo is already started")))
 
 
-(defun initialize-pozzo-extensions ()
+(defun initialize-pozzo-extensions (init-level)
   (with-slots (extension-registry) *pozzo*
     (loop for extension being the hash-value of extension-registry
-          do (%load-extension extension)))
-  (shout "Extensions initialized"))
+          when (eq init-level (%level-of extension))
+            do (%load-extension extension)
+               (shout "Extension ~A initialized" (%name-of extension)))))
 
 
 (defun start-pozzo (godot-instance)
@@ -80,17 +82,19 @@
     (clrhash module-registry)))
 
 
-(defun %push-action (action)
+(defun %push-action (action &key (error t))
   (with-slots (action-queue) *pozzo*
-    (unless (pozzo-started-p)
-      (error "Pozzo is offline: cannot enqueue an action"))
     (muth:with-guarded-reference (action-queue)
-      (push action action-queue))))
+      (if (pozzo-started-p)
+          (push action action-queue)
+          (when error
+            (error "Pozzo is offline: cannot enqueue an action"))))))
 
 
-(defmacro do-by-pozzo (() &body body)
+(defmacro do-by-pozzo ((&key if-running) &body body)
   `(%push-action
-    (lambda () ,@body)))
+    (lambda () ,@body)
+    ,@(when if-running '(:error nil))))
 
 
 ;; FIXME: make sure that symbols here such as classes and methods are separate:
@@ -165,6 +169,16 @@
   (a:if-let ((extension (find-extension extension-name)))
     extension
     (error "Extension ~A not found" extension-name)))
+
+
+(defun get-extension-class (extension-class-name)
+  (with-slots (class-extension-table) *pozzo*
+    (a:if-let ((extension-name (gethash extension-class-name class-extension-table)))
+      (let ((extension (get-extension extension-name)))
+        (a:if-let ((class (gethash extension-class-name (%class-table-of extension))))
+          class
+          (error "Class ~A not found in extension ~A" extension-class-name extension-name)))
+      (error "Extension not found for class ~A" extension-class-name))))
 
 
 (cffi:defcstruct pozzo-method
@@ -253,6 +267,7 @@
   (values))
 
 
+(declaim (inline initialize-extension-level))
 (defun initialize-extension-level (extension-name
                                    class-library-ptr
                                    init-level
@@ -289,7 +304,10 @@
                   (creation-info :call-virtual-with-data-func) (get-protocallback 'call-extension-class-virtual-with-data)
                   (creation-info :class-userdata) class-info)
             (c-val ((class-info (:struct pozzo-class-info)))
-              (%register-extension-class-metadata (cffi:pointer-address (class-info &)) extension-class)
+              (locally (declare #+sbcl (sb-ext:muffle-conditions sb-ext:compiler-note))
+                ;; ignore sap->integer conversion warning
+                ;; irrelevant, because it doesn't affect global performance
+                (%register-extension-class-metadata (cffi:pointer-address (class-info &)) extension-class))
               (%gdext:classdb-register-extension-class5 class-library-ptr
                                                         (class-info :class-name &)
                                                         (class-info :parent-name &)
@@ -303,10 +321,15 @@
                 using (hash-value signal-properties)
               do (%register-signal signal-name signal-properties (%name-of extension-class) extension))))
     (when init-fu
-      (funcall init-fu extension-name (level->pozzo init-level))))
+      (funcall init-fu (level->pozzo init-level)))
+
+    (when (eq init-level :initialization-scene)
+      (loop for script being the hash-value of (%script-table-of extension)
+            do (%load-extension-script script))))
   (values))
 
 
+(declaim (inline release-extension-level))
 (defun release-extension-level (extension-name
                                 class-library-ptr
                                 deinit-level
@@ -323,10 +346,11 @@
             (%gdext:classdb-unregister-extension-class class-library-ptr
                                                        class-string-name)))))
     (when deinit-fu
-      (funcall deinit-fu extension-name (level->pozzo deinit-level))))
+      (funcall deinit-fu (level->pozzo deinit-level))))
   (values))
 
 
+(declaim (inline initialize-extension))
 (defun initialize-extension (extension-name class-library-ptr init-struct)
   (let ((extension (get-extension extension-name)))
     (%update-class-library-pointer class-library-ptr extension)
@@ -336,6 +360,11 @@
             (init-struct :initialize) (get-protocallback (level-initializer-name-of extension))
             (init-struct :deinitialize) (get-protocallback (level-deinitializer-name-of extension)))))
   t)
+
+
+(defun %load-extension-script (script)
+  (shout "Loading script ~S" (%name-of script))
+  (initialize-extension-script script))
 
 
 (defun %load-extension (extension)
@@ -481,7 +510,7 @@
 
 
 (defun register-extension-class (class-name extension-name &rest initargs
-                                 &key bind level &allow-other-keys)
+                                 &key bind &allow-other-keys)
   (with-slots (extension-registry class-extension-table) *pozzo*
     (a:if-let ((extension (gethash extension-name extension-registry)))
       (when (apply #'%add-extension-class extension class-name initargs)
@@ -491,6 +520,18 @@
           (do-by-pozzo ()
             (%unload-extension extension)
             (%load-extension extension))))
+      (error "Extension ~A not found" extension-name))))
+
+
+(defun register-extension-script (script-name extension-name &rest initargs
+                                  &key &allow-other-keys)
+  (with-slots (extension-registry script-extension-table) *pozzo*
+    (a:if-let ((extension (gethash extension-name extension-registry)))
+      (a:when-let ((script (apply #'%add-extension-script
+                                  extension script-name initargs)))
+        (setf (gethash script-name script-extension-table) extension-name)
+        (do-by-pozzo (:if-running t)
+          (%load-extension-script script)))
       (error "Extension ~A not found" extension-name))))
 
 
@@ -542,16 +583,3 @@
        (prog1 (c-ref (get-variant-internal-ptr ,result-variant) %godot:error)
          (release-variant (,signal-name-variant &))
          (release-variant (,result-variant &))))))
-
-
-(declaim (inline construct))
-(defun construct (class-name)
-  (with-godot-string-name (class-string-name (the string (get-class-bind-name class-name)))
-    (let ((obj-ptr (%gdext:classdb-construct-object2 class-string-name)))
-      (%godot:object+notification obj-ptr 0 0)
-      obj-ptr)))
-
-
-(declaim (inline destruct))
-(defun destruct (object-ptr)
-  (%gdext:object-destroy object-ptr))

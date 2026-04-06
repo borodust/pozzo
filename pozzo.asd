@@ -18,10 +18,18 @@
   :components ((:file "packages")
                (:file "utils")
                (:file "wrapper")
-               (:file "extension")
-               (:file "module")
+               (:module "api"
+                :serial t
+                :components ((:file "prototype")
+                             (:file "extension")
+                             (:file "class")
+                             (:file "script")
+                             (:file "method")
+                             (:file "property")
+                             (:file "signal")
+                             (:file "module")))
                (:file "pozzo")
-               (:file "invocation")
+               (:file "core")
                (:file "main")))
 
 
