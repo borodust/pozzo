@@ -17,7 +17,7 @@
 
 
 (defprotocallback (level-deinit-func
-                                 %gdext:deinitialize-callback)
+                   %gdext:deinitialize-callback)
     (userdata deinit-level)
   (declare (ignore userdata deinit-level))
   (values))
@@ -41,7 +41,8 @@
 (defprotocallback (libgodot-init %gdext:initialization-function)
     (get-proc-addr-ptr class-lib-ptr init-record-ptr)
   (declare (ignore class-lib-ptr))
-  (bind-interface get-proc-addr-ptr)
+  (bind-gdext-interface get-proc-addr-ptr)
+  (bind-godot-constants)
   (init-godot init-record-ptr)
   1)
 
@@ -126,10 +127,10 @@
              (argc (length args)))
         (unwind-protect
              (cffi-c-ref:c-with ((argv :pointer :count argc))
-                                (loop for foreign-arg in foreign-args
-                                      for i from 0
-                                      do (setf (argv i) foreign-arg))
-                                (funcall body argc (argv &)))
+               (loop for foreign-arg in foreign-args
+                     for i from 0
+                     do (setf (argv i) foreign-arg))
+               (funcall body argc (argv &)))
           (loop for foreign-arg in foreign-args
                 do (cffi:foreign-string-free foreign-arg)))))))
 

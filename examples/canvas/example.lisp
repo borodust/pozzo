@@ -84,16 +84,16 @@
          (g (abs (cos (* 0.2 time))))
          (b (abs (- r g)))
          (radius (+ 100 (* 50 (sin (* 0.1 time)))))
-         (filled 1)
+         (filled t)
          (width -1)
-         (antialiased 1))
+         (antialiased nil))
     (pozzo:c-with ((pos %godot:vector-2)
                    (col %godot:color))
 
       (%godot:make-color@3 (col &) 0.2d0 0.25d0 0.3d0)
       (%godot:rendering-server+set-default-clear-color
        (%godot:rendering-server)
-       (col &))
+       %godot:+color+dark-slate-gray+)
 
       (%godot:make-color@3 (col &) (float r 0d0) (float g 0d0) (float b 0d0))
       (%godot:make-vector-2@3 (pos &) (float x 0d0) (float y 0d0))

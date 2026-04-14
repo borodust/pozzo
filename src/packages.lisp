@@ -8,7 +8,8 @@
                 #:get-protocallback
                 #:funcall-prototype)
   (:import-from #:%godot.util
-                #:bind-interface
+                #:bind-gdext-interface
+                #:bind-godot-constants
                 #:godot-string-to-lisp
                 #:godot-extension-bind-name
                 #:godot-extension-variant-kind)

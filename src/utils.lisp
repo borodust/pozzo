@@ -276,6 +276,6 @@
 (defmacro with-variants (bindings &body body)
   (if bindings
       `(with-variant ,(first bindings)
-         (with-godot-strings ,(rest bindings)
+         (with-variants ,(rest bindings)
            ,@body))
       `(progn ,@body)))

@@ -311,9 +311,76 @@
 (defun initialize-variant-from-value (uninitialized-variant-ptr value-ptr class-name)
   (let* ((variant-kind (godot-extension-variant-kind class-name))
          (variant-ctor (%gdext:get-variant-from-type-constructor variant-kind)))
-    (funcall-prototype variant-ctor %gdext:variant-from-type-constructor-func
-                                   uninitialized-variant-ptr
-                                   value-ptr)))
+    (flet ((%funcall-ctor (variant-ctor uninitialized-variant-ptr value-ptr)
+             (funcall-prototype variant-ctor %gdext:variant-from-type-constructor-func
+                                uninitialized-variant-ptr
+                                value-ptr)))
+      (declare (inline %funcall-ctor))
+      (cond
+        ((cffi:pointerp value-ptr)
+         (%funcall-ctor variant-ctor uninitialized-variant-ptr value-ptr))
+
+        ((eq class-name '%godot:bool)
+         (c-with ((val %godot:bool))
+           (setf val value-ptr)
+           (%funcall-ctor variant-ctor uninitialized-variant-ptr (val &))))
+
+        ((eq class-name '%godot:int)
+         (c-with ((val %godot:int))
+           (setf val (truncate value-ptr))
+           (%funcall-ctor variant-ctor uninitialized-variant-ptr (val &))))
+
+        ((eq class-name '%godot:float)
+         (c-with ((val %godot:float))
+           (setf val (float value-ptr 0d0))
+           (%funcall-ctor variant-ctor uninitialized-variant-ptr (val &))))
+
+        ((eq class-name '%godot:string)
+         (with-godot-string (val (the string value-ptr))
+           (%funcall-ctor variant-ctor uninitialized-variant-ptr val)))
+
+        ((eq class-name '%godot:string-name)
+         (with-godot-string-name (val (the string value-ptr))
+           (%funcall-ctor variant-ctor uninitialized-variant-ptr val)))
+
+        (t (error "Unexpected variant initialization value ~A for variant kind ~A" value-ptr variant-kind))))))
+
+
+(define-compiler-macro initialize-variant-from-value (&whole whole uninitialized-variant-ptr value-ptr class-name)
+  (if (and (listp class-name)
+           (eq 'quote (first class-name))
+           (member (second class-name) '(%godot:bool
+                                         %godot:int
+                                         %godot:float
+                                         %godot:string
+                                         %godot:string-name)))
+      (let* ((class-name (second class-name))
+             (variant-kind (godot-extension-variant-kind class-name)))
+        (a:with-gensyms (variant-ctor value)
+          (a:once-only (value-ptr)
+            `(let ((,variant-ctor (%gdext:get-variant-from-type-constructor ,variant-kind)))
+               (if (cffi:pointerp ,value-ptr)
+                   (funcall-prototype ,variant-ctor %gdext:variant-from-type-constructor-func
+                                      ,uninitialized-variant-ptr
+                                      ,value-ptr)
+                   ,(flet ((%expand-primitive (type)
+                             `(c-with ((,value ,type))
+                                (setf ,value ,value-ptr)
+                                (funcall-prototype ,variant-ctor
+                                                   %gdext:variant-from-type-constructor-func
+                                                   ,uninitialized-variant-ptr
+                                                   (,value &))))
+                           (%expand-string (macro)
+                             `(,macro (,value (the string ,value-ptr))
+                                      (funcall-prototype ,variant-ctor
+                                                         %gdext:variant-from-type-constructor-func
+                                                         ,uninitialized-variant-ptr
+                                                         ,value))))
+                      (ecase class-name
+                        ((%godot:bool %godot:int %godot:float) (%expand-primitive class-name))
+                        (%godot:string (%expand-string 'with-godot-string))
+                        (%godot:string-name (%expand-string 'with-godot-string-name)))))))))
+      whole))
 
 
 (declaim (inline release-variant))

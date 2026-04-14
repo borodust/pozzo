@@ -45,13 +45,11 @@
       (%godot:node-2d+set-position (pozzo:unwrap self) (new-pos &))
       (@hello-godot+position-changed self (new-pos &))))
 
-  (pozzo:c-with ((consed %godot:int))
-    (setf consed -1)
-    (let ((latest-consed (the fixnum #+sbcl (sb-ext:get-bytes-consed) #-sbcl -1)))
-      (unless (< latest-consed 0)
-        (setf consed (- latest-consed (hello-godot-last-consed self))
-              (hello-godot-last-consed self) latest-consed)))
-    (@hello-godot+bytes-consed self (consed &))))
+  (let* ((latest-consed (the fixnum #+sbcl (sb-ext:get-bytes-consed) #-sbcl -1)))
+    (unless (< latest-consed 0)
+      (setf (hello-godot-last-consed self) latest-consed)
+      (let ((frame-consed (the fixnum (- latest-consed (hello-godot-last-consed self)))))
+        (@hello-godot+bytes-consed self frame-consed)))))
 
 
 (defun run (&key editor)

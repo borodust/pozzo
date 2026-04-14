@@ -8,7 +8,7 @@
    (class-metadata-table :initform (make-hash-table :test 'eql))
    (wrapper-registry :initform (make-hash-table :test 'eql :size 127))
 
-   (iter-result :initform (cffi:foreign-alloc '%godot:bool))
+   (stop-iterating-p :initform (cffi:foreign-alloc '%godot:bool))
    (action-queue :initform (muth:make-guarded-reference (list)))
    (string-name-cache :initform (make-hash-table :test 'eq))))
 
@@ -43,25 +43,25 @@
 
     (c-with ((result %godot:bool))
       (%godot:godot-instance+start godot-instance (result &))
-      (when (zerop result)
+      (unless result
         (error "Failed to start Godot instance")))
     (shout "Godot instance started")))
 
 
 (defun iterate-pozzo ()
-  (with-slots (godot-instance iter-result action-queue) *pozzo*
-    (c-val ((iter-result %godot:bool))
-      (%godot:godot-instance+iteration godot-instance (iter-result &))
+  (with-slots (godot-instance stop-iterating-p action-queue) *pozzo*
+    (c-val ((stop-iterating-p %godot:bool))
+      (%godot:godot-instance+iteration godot-instance (stop-iterating-p &))
       (loop for action in (muth:with-guarded-reference (action-queue)
                             (prog1 action-queue
                               (setf action-queue nil)))
             do (funcall action))
-      (= iter-result 0))))
+      (not stop-iterating-p))))
 
 
 (defun stop-pozzo ()
-  (with-slots (godot-instance iter-result string-name-cache) *pozzo*
-    (cffi:foreign-free iter-result)
+  (with-slots (godot-instance stop-iterating-p string-name-cache) *pozzo*
+    (cffi:foreign-free stop-iterating-p)
     (setf godot-instance nil)
     (loop for string-name-ptr being the hash-value of string-name-cache
           do (destroy-godot-string-name string-name-ptr)
@@ -205,7 +205,7 @@
        (let* ((obj-ptr (%gdext:classdb-construct-object2 (class-info :parent-name &)))
               (wrapper-ptr (make-pozzo-wrapper obj-ptr (funcall (%constructor-name-of class)))))
          (%gdext:object-set-instance obj-ptr (class-info :class-name &) wrapper-ptr)
-         (unless (zerop notify-postinitialize-p)
+         (when notify-postinitialize-p
            (%godot:object+notification obj-ptr 0 0))
          obj-ptr)))))
 
@@ -308,7 +308,7 @@
           (%godot:class-db+class-exists (%godot:class-db)
                                         (class-exists &)
                                         class-string-name)
-          (unless (zerop class-exists)
+          (when class-exists
             (%gdext:classdb-unregister-extension-class class-library-ptr
                                                        class-string-name)))))
     (when deinit-fu
