@@ -51,7 +51,13 @@
            #:memfree
 
            #:construct
-           #:destruct))
+           #:destruct
+
+           #:register-module
+           #:make-module
+           #:initialize-module
+           #:release-module
+           #:iterate-module))
 
 
 (cl:defpackage #:%%pozzo

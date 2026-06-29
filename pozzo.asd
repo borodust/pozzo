@@ -19,6 +19,7 @@
                (:file "utils")
                (:file "wrapper")
                (:file "extension")
+               (:file "module")
                (:file "pozzo")
                (:file "invocation")
                (:file "main")))
