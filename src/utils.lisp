@@ -250,16 +250,18 @@
     (with-godot-string (gstr str)
       (%godot:packed-string-array+push-back ptr (cffi:null-pointer) gstr))))
 
+
 (define-compiler-macro initialize-godot-packed-string-array (ptr &rest strings)
   (a:once-only (ptr)
-    (a:with-gensyms (gstr)
+    (a:with-gensyms (gstr res)
       `(progn
          (%godot:make-packed-string-array ,ptr)
          ,@(loop for str in strings
                  collect `(with-godot-string (,gstr ,str)
-                            (%godot:packed-string-array+push-back ,ptr
-                                                                  (cffi:null-pointer)
-                                                                  ,gstr)))))))
+                            (c-with ((,res %godot:bool))
+                              (%godot:packed-string-array+push-back ,ptr
+                                                                    (,res &)
+                                                                    ,gstr))))))))
 
 
 (declaim (inline make-godot-packed-string-array))

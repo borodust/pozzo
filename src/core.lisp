@@ -1,23 +1,27 @@
 (cl:in-package #:pozzo)
 
 
-(defpextension core
-  (:level :servers)
-  (:init-level 'init-core-extension))
 
-
-(defun init-core-extension (level)
-  (when (eq :servers level)
-    (let ((opaque-script-lang-ptr (construct 'opaque-script-language)))
-      (%godot:engine+register-script-language (%godot:engine) (cffi:null-pointer) opaque-script-lang-ptr))))
 
 ;;;
 ;;; SCRIPT
 ;;;
+(defun init-opaque-script-language ()
+  (let ((opaque-script-lang-ptr (construct 'opaque-script-language)))
+    (c-with ((err %godot:error))
+      (%godot:engine+register-script-language (%godot:engine)
+                                              (err &)
+                                              opaque-script-lang-ptr)
+      (unless (eq err :ok)
+        (error "Failed to register PZOpaqueScript as an engine language")))))
+
+
 (defpclass opaque-script-language
   ()
   (:inherit %godot:script-language-extension)
-  (:extension core))
+  (:extension root)
+  (:level :core)
+  (:init init-opaque-script-language))
 
 
 (defpmethod (%get-name :virtual) ((self opaque-script-language)) %godot:string
@@ -72,7 +76,7 @@
 (defpclass pozzo-resource-format-loader
   ()
   (:inherit %godot:resource-format-loader)
-  (:extension core))
+  (:extension root))
 
 
 (defpmethod (%exists :virtual) ((self pozzo-resource-format-loader)) %godot:bool

@@ -8,22 +8,21 @@
 
 (defprotocallback (level-init-func
                    %gdext:initialize-callback)
-    (userdata init-level)
-  (declare (ignore userdata))
+    (class-lib-ptr init-level)
   (shout "LibGodot: ~A" init-level)
-  (when (eq :initialization-scene init-level)
-    (initialize-pozzo-extensions init-level))
+  (initialize-root-extension-level class-lib-ptr init-level)
+  (initialize-extensions init-level)
   (values))
 
 
 (defprotocallback (level-deinit-func
                    %gdext:deinitialize-callback)
-    (userdata deinit-level)
-  (declare (ignore userdata deinit-level))
+    (class-lib-ptr deinit-level)
+  (deinitialize-root-extension-level class-lib-ptr deinit-level)
   (values))
 
 
-(defun init-godot (init-record-ptr)
+(defun init-godot (class-lib-ptr init-record-ptr)
   (c-with ((godot-version %gdext:godot-version-2))
     (%gdext:get-godot-version2 (godot-version &))
     (format *standard-output* "~&Godot version: ~A.~A.~A"
@@ -31,19 +30,20 @@
             (godot-version :minor)
             (godot-version :patch)))
 
+  (initialize-root-extension class-lib-ptr)
+
   (c-val ((init-record-ptr %gdext:initialization))
     (setf (init-record-ptr :minimum-initialization-level) :initialization-core
-          (init-record-ptr :userdata) (cffi:null-pointer)
+          (init-record-ptr :userdata) class-lib-ptr
           (init-record-ptr :initialize) (get-protocallback 'level-init-func)
           (init-record-ptr :deinitialize) (get-protocallback 'level-deinit-func))))
 
 
 (defprotocallback (libgodot-init %gdext:initialization-function)
     (get-proc-addr-ptr class-lib-ptr init-record-ptr)
-  (declare (ignore class-lib-ptr))
   (bind-gdext-interface get-proc-addr-ptr)
   (bind-godot-constants)
-  (init-godot init-record-ptr)
+  (init-godot class-lib-ptr init-record-ptr)
   1)
 
 

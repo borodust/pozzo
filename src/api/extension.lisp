@@ -136,7 +136,8 @@
         (level-init-cb-name (format-secret-symbol name 'ext-level-init))
         (level-deinit-cb-name (format-secret-symbol name 'ext-level-deinit))
         (props (a:alist-plist options)))
-    (destructuring-bind (&key ((:level (level)) '(:scene))
+    (destructuring-bind (&key
+                           ((:level (level)) '(:scene))
                            ((:init-level (init-fu)) '(nil))
                            ((:fini-level (fini-fu)) '(nil)))
         props

@@ -10,6 +10,8 @@
    (wrapper-registry :initform (make-hash-table :test 'eql :size 127))
    (module-registry :initform (make-hash-table :test 'eq))
 
+   (root-extension :initform (make-extension 'root))
+
    (stop-iterating-p :initform (cffi:foreign-alloc '%godot:bool))
    (action-queue :initform (muth:make-guarded-reference (list)))
    (string-name-cache :initform (make-hash-table :test 'eq))))
@@ -28,7 +30,24 @@
     (error "Pozzo is already started")))
 
 
-(defun initialize-pozzo-extensions (init-level)
+(declaim (inline initialize-root-extension))
+(defun initialize-root-extension (class-lib-ptr)
+  (with-slots (root-extension) *pozzo*
+    (%update-class-library-pointer class-lib-ptr root-extension)))
+
+
+(declaim (inline initialize-root-extension-level))
+(defun initialize-root-extension-level (class-lib-ptr init-level)
+  (initialize-extension-level 'root class-lib-ptr init-level nil))
+
+
+(declaim (inline deinitialize-root-extension-level))
+(defun deinitialize-root-extension-level (class-lib-ptr deinit-level)
+  (release-extension-level 'root class-lib-ptr deinit-level nil))
+
+
+(declaim (inline initialize-extensions))
+(defun initialize-extensions (init-level)
   (with-slots (extension-registry) *pozzo*
     (loop for extension being the hash-value of extension-registry
           when (eq init-level (%level-of extension))
@@ -134,7 +153,7 @@
 
 (defun register-extension (extension-name &rest keys &key &allow-other-keys)
   (with-slots (extension-registry) *pozzo*
-    (unless (gethash extension-name extension-registry)
+    (unless (find-extension extension-name)
       (let ((extension (apply #'make-extension extension-name keys)))
         (setf (gethash extension-name extension-registry) extension)
         (when (pozzo-started-p)
@@ -153,16 +172,18 @@
 
 
 (defun find-extension-method (method-name class-name)
-  (with-slots (class-extension-table extension-registry) *pozzo*
+  (with-slots (class-extension-table) *pozzo*
     (a:when-let ((extension-name (gethash class-name class-extension-table)))
-      (a:when-let ((extension (gethash extension-name extension-registry)))
+      (a:when-let ((extension (find-extension extension-name)))
         (a:when-let ((class (gethash class-name (%class-table-of extension))))
           (gethash method-name (%method-table-of class)))))))
 
 
 (defun find-extension (extension-name)
-  (with-slots (extension-registry) *pozzo*
-    (gethash extension-name extension-registry)))
+  (with-slots (extension-registry root-extension) *pozzo*
+    (if (eq extension-name 'root)
+        root-extension
+        (gethash extension-name extension-registry))))
 
 
 (defun get-extension (extension-name)
@@ -274,52 +295,51 @@
                                    init-fu)
   (let ((extension (get-extension extension-name)))
     (shout "Extension ~S: ~A" (%name-of extension) init-level)
-
-    (with-slots (extension-registry) *pozzo*
-      (do-extension-classes (extension-class extension :level init-level)
-        (c-with ((creation-info %gdext:class-creation-info-5))
-          (let ((class-info (make-pozzo-class-info (%name-of extension-class)
-                                                   (%parent-name-of extension-class))))
-            (setf (creation-info :is-virtual) 0
-                  (creation-info :is-abstract) 0
-                  (creation-info :is-exposed) 1
-                  (creation-info :is-runtime) 0
-                  (creation-info :icon-path) (cffi:null-pointer)
-                  (creation-info :set-func) (cffi:null-pointer)
-                  (creation-info :get-func) (cffi:null-pointer)
-                  (creation-info :get-property-list-func) (cffi:null-pointer)
-                  (creation-info :free-property-list-func) (cffi:null-pointer)
-                  (creation-info :property-can-revert-func) (cffi:null-pointer)
-                  (creation-info :property-get-revert-func) (cffi:null-pointer)
-                  (creation-info :validate-property-func) (cffi:null-pointer)
-                  (creation-info :notification-func) (cffi:null-pointer)
-                  (creation-info :to-string-func) (cffi:null-pointer)
-                  (creation-info :reference-func) (cffi:null-pointer)
-                  (creation-info :unreference-func) (cffi:null-pointer)
-                  (creation-info :create-instance-func) (get-protocallback 'create-extension-class-instance)
-                  (creation-info :free-instance-func) (get-protocallback 'free-extension-class-instance)
-                  (creation-info :recreate-instance-func) (cffi:null-pointer)
-                  (creation-info :get-virtual-func) (cffi:null-pointer)
-                  (creation-info :get-virtual-call-data-func) (get-protocallback 'get-extension-class-virtual-call-data)
-                  (creation-info :call-virtual-with-data-func) (get-protocallback 'call-extension-class-virtual-with-data)
-                  (creation-info :class-userdata) class-info)
-            (c-val ((class-info (:struct pozzo-class-info)))
-              (locally (declare #+sbcl (sb-ext:muffle-conditions sb-ext:compiler-note))
-                ;; ignore sap->integer conversion warning
-                ;; irrelevant, because it doesn't affect global performance
-                (%register-extension-class-metadata (cffi:pointer-address (class-info &)) extension-class))
-              (%gdext:classdb-register-extension-class5 class-library-ptr
-                                                        (class-info :class-name &)
-                                                        (class-info :parent-name &)
-                                                        (creation-info &)))))
-        (loop for method being the hash-value of (%method-table-of extension-class)
-              unless (virtualp method)
-                do (%register-method method (%name-of extension-class) extension))
-        (loop for property being the hash-value of (%property-table-of extension-class)
-              do (%register-property property (%name-of extension-class) extension))
-        (loop for signal-name being the hash-key of (%signal-table-of extension-class)
-                using (hash-value signal-properties)
-              do (%register-signal signal-name signal-properties (%name-of extension-class) extension))))
+    (do-extension-classes (extension-class extension :level init-level)
+      (c-with ((creation-info %gdext:class-creation-info-5))
+        (let ((class-info (make-pozzo-class-info (%name-of extension-class)
+                                                 (%parent-name-of extension-class))))
+          (setf (creation-info :is-virtual) 0
+                (creation-info :is-abstract) 0
+                (creation-info :is-exposed) 1
+                (creation-info :is-runtime) 0
+                (creation-info :icon-path) (cffi:null-pointer)
+                (creation-info :set-func) (cffi:null-pointer)
+                (creation-info :get-func) (cffi:null-pointer)
+                (creation-info :get-property-list-func) (cffi:null-pointer)
+                (creation-info :free-property-list-func) (cffi:null-pointer)
+                (creation-info :property-can-revert-func) (cffi:null-pointer)
+                (creation-info :property-get-revert-func) (cffi:null-pointer)
+                (creation-info :validate-property-func) (cffi:null-pointer)
+                (creation-info :notification-func) (cffi:null-pointer)
+                (creation-info :to-string-func) (cffi:null-pointer)
+                (creation-info :reference-func) (cffi:null-pointer)
+                (creation-info :unreference-func) (cffi:null-pointer)
+                (creation-info :create-instance-func) (get-protocallback 'create-extension-class-instance)
+                (creation-info :free-instance-func) (get-protocallback 'free-extension-class-instance)
+                (creation-info :recreate-instance-func) (cffi:null-pointer)
+                (creation-info :get-virtual-func) (cffi:null-pointer)
+                (creation-info :get-virtual-call-data-func) (get-protocallback 'get-extension-class-virtual-call-data)
+                (creation-info :call-virtual-with-data-func) (get-protocallback 'call-extension-class-virtual-with-data)
+                (creation-info :class-userdata) class-info)
+          (c-val ((class-info (:struct pozzo-class-info)))
+            (locally (declare #+sbcl (sb-ext:muffle-conditions sb-ext:compiler-note))
+              ;; ignore sap->integer conversion warning
+              ;; irrelevant, because it doesn't affect global performance
+              (%register-extension-class-metadata (cffi:pointer-address (class-info &)) extension-class))
+            (%gdext:classdb-register-extension-class5 class-library-ptr
+                                                      (class-info :class-name &)
+                                                      (class-info :parent-name &)
+                                                      (creation-info &)))))
+      (loop for method being the hash-value of (%method-table-of extension-class)
+            unless (virtualp method)
+              do (%register-method method (%name-of extension-class) extension))
+      (loop for property being the hash-value of (%property-table-of extension-class)
+            do (%register-property property (%name-of extension-class) extension))
+      (loop for signal-name being the hash-key of (%signal-table-of extension-class)
+              using (hash-value signal-properties)
+            do (%register-signal signal-name signal-properties (%name-of extension-class) extension))
+      (init-extension-class extension-class))
     (when init-fu
       (funcall init-fu (level->pozzo init-level)))
 
@@ -344,7 +364,8 @@
                                         class-string-name)
           (when class-exists
             (%gdext:classdb-unregister-extension-class class-library-ptr
-                                                       class-string-name)))))
+                                                       class-string-name)
+            (deinit-extension-class extension-class)))))
     (when deinit-fu
       (funcall deinit-fu (level->pozzo deinit-level))))
   (values))
@@ -511,34 +532,32 @@
 
 (defun register-extension-class (class-name extension-name &rest initargs
                                  &key bind &allow-other-keys)
-  (with-slots (extension-registry class-extension-table) *pozzo*
-    (a:if-let ((extension (gethash extension-name extension-registry)))
+  (with-slots (class-extension-table) *pozzo*
+    (let ((extension (get-extension extension-name)))
       (when (apply #'%add-extension-class extension class-name initargs)
         (register-class-bind-mapping class-name bind)
         (setf (gethash class-name class-extension-table) extension-name)
         (when (pozzo-started-p)
           (do-by-pozzo ()
             (%unload-extension extension)
-            (%load-extension extension))))
-      (error "Extension ~A not found" extension-name))))
+            (%load-extension extension)))))))
 
 
 (defun register-extension-script (script-name extension-name &rest initargs
                                   &key &allow-other-keys)
   (with-slots (extension-registry script-extension-table) *pozzo*
-    (a:if-let ((extension (gethash extension-name extension-registry)))
+    (let ((extension (get-extension extension-name)))
       (a:when-let ((script (apply #'%add-extension-script
                                   extension script-name initargs)))
         (setf (gethash script-name script-extension-table) extension-name)
         (do-by-pozzo (:if-running t)
-          (%load-extension-script script)))
-      (error "Extension ~A not found" extension-name))))
+          (%load-extension-script script))))))
 
 
 (defun register-extension-class-method (method-name class-name &rest keys &key bind &allow-other-keys)
   (with-slots (extension-registry class-extension-table) *pozzo*
     (a:if-let ((extension-name (gethash class-name class-extension-table)))
-      (let ((extension (gethash extension-name extension-registry)))
+      (let ((extension (get-extension extension-name)))
         (a:when-let ((new-extension-class-method (apply #'%add-extension-class-method extension class-name method-name keys)))
           (register-method-bind-mapping class-name method-name bind)
           (when (pozzo-started-p)
@@ -551,7 +570,7 @@
 (defun register-extension-class-signal (signal-name class-name &rest keys &key properties &allow-other-keys)
   (with-slots (extension-registry class-extension-table) *pozzo*
     (a:if-let ((extension-name (gethash class-name class-extension-table)))
-      (let ((extension (gethash extension-name extension-registry)))
+      (let ((extension (get-extension extension-name)))
         (when (apply #'%add-extension-class-signal extension class-name signal-name keys)
           (when (pozzo-started-p)
             (do-by-pozzo ()

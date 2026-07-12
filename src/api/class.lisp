@@ -4,7 +4,9 @@
 (defmacro defpclass (name &body slots-and-opts)
   (destructuring-bind (slots &rest opts) slots-and-opts
     (destructuring-bind (&key extension signals inherit level
-                           ((:string-name (string-name)) '(nil)))
+                           ((:string-name (string-name)) '(nil))
+                           ((:init (init-fu)) '(nil))
+                           ((:deinit (fini-fu)) '(nil)))
         (a:alist-plist opts)
       (let* ((extension-name (first extension))
              (parent-name (first inherit))
@@ -42,7 +44,9 @@
                                            :properties ',properties
                                            :constructor ',ctor-name
                                            :destructor ',dtor-name
-                                           :level ,level))
+                                           :level ,level
+                                           :init ',init-fu
+                                           :deinit ',fini-fu))
                (cffi:defcstruct ,struct-name
                  ,@struct-slots)
                ,@(loop for (slot-name slot-type) in struct-slots
@@ -90,7 +94,9 @@
    (struct :initarg :struct :reader %struct-name-of)
    (constructor :initarg :constructor :reader %constructor-name-of)
    (destructor :initarg :destructor :reader %destructor-name-of)
-   (vcall-table :initform (make-hash-table :test 'equal) :reader %vcall-table-of)))
+   (vcall-table :initform (make-hash-table :test 'equal) :reader %vcall-table-of)
+   (init :initform nil :initarg :init :reader %init-of)
+   (deinit :initform nil :initarg :deinit :reader %deinit-of)))
 
 
 (defmethod initialize-instance :after ((this extension-class)
@@ -182,3 +188,13 @@
                                                      :ptrcall-function-name ',ptrcall-name))
                                              :parameters ',parameters
                                              :return-type ',return-type)))))))
+
+
+(defun init-extension-class (extension-class)
+  (a:when-let ((init-fu (%init-of extension-class)))
+    (funcall init-fu)))
+
+
+(defun deinit-extension-class (extension-class)
+  (a:when-let ((deinit-fu (%deinit-of extension-class)))
+    (funcall deinit-fu)))

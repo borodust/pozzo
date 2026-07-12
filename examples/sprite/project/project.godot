@@ -12,7 +12,7 @@ config_version=5
 
 config/name="PozzoExample"
 run/main_scene="uid://b4kutas2em76c"
-config/features=PackedStringArray("4.6", "Forward Plus")
+config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
 [physics]
