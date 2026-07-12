@@ -35,6 +35,40 @@
     (initialize-godot-string result "pzo")))
 
 
+(defpmethod (%init :virtual) ((self opaque-script-language)) :void)
+
+
+(defpmethod (%finish :virtual) ((self opaque-script-language)) :void)
+
+
+(defpmethod (%frame :virtual) ((self opaque-script-language)) :void)
+
+
+(defpmethod (%thread-enter :virtual) ((self opaque-script-language)) :void)
+
+
+(defpmethod (%thread-exit :virtual) ((self opaque-script-language)) :void)
+
+
+(defpmethod (%reload-all-scripts :virtual) ((self opaque-script-language)) :void)
+
+
+(defpmethod (%reload-scripts :virtual) ((self opaque-script-language)) :void)
+
+
+(defpmethod (%reload-tool-script :virtual) ((self opaque-script-language)) :void)
+
+
+(defpmethod (%get-recognized-extensions :virtual) ((self opaque-script-language))
+    %godot:packed-string-array
+  (preturn-with (result)
+    (initialize-godot-packed-string-array result "pzo")))
+
+
+(defpmethod (%handles-global-class-type :virtual) ((self opaque-script-language)) %godot:bool
+  (preturn nil))
+
+
 (defpclass pozzo-resource-format-loader
   ()
   (:inherit %godot:resource-format-loader)

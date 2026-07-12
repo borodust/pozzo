@@ -240,6 +240,41 @@
   (release-godot-property prop)
   (memfree prop))
 
+;;;
+;;; PACKED STRING ARRAY
+;;;
+(declaim (inline initialize-godot-packed-string-array))
+(defun initialize-godot-packed-string-array (ptr &rest strings)
+  (%godot:make-packed-string-array ptr)
+  (dolist (str strings)
+    (with-godot-string (gstr str)
+      (%godot:packed-string-array+push-back ptr (cffi:null-pointer) gstr))))
+
+(define-compiler-macro initialize-godot-packed-string-array (ptr &rest strings)
+  (a:once-only (ptr)
+    (a:with-gensyms (gstr)
+      `(progn
+         (%godot:make-packed-string-array ,ptr)
+         ,@(loop for str in strings
+                 collect `(with-godot-string (,gstr ,str)
+                            (%godot:packed-string-array+push-back ,ptr
+                                                                  (cffi:null-pointer)
+                                                                  ,gstr)))))))
+
+
+(declaim (inline make-godot-packed-string-array))
+(defun make-godot-packed-string-array (&rest strings)
+  (let ((ptr (memalloc '%godot:string)))
+    (apply #'initialize-godot-packed-string-array ptr strings)
+    ptr))
+
+
+(declaim (inline destroy-godot-packed-string-array))
+(defun destroy-godot-packed-string-array (ptr)
+  (%godot:destroy-packed-string-array ptr)
+  (memfree ptr)
+  (values))
+
 
 (defmacro shout-errors (&body body)
   (a:with-gensyms (retry drop-out)
