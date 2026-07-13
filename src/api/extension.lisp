@@ -25,7 +25,6 @@
    (path :initarg :path :reader %path-of)
    (level :reader %level-of)
    (class-table :initform (make-hash-table :test 'eq) :reader %class-table-of)
-   (script-table :initform (make-hash-table :test 'eq) :reader %script-table-of)
    (class-library-pointer :type cffi:foreign-pointer
                           :initform (cffi:null-pointer)
                           :reader class-library-pointer-of)
@@ -68,19 +67,6 @@
        (gethash class-name class-table)
        (apply #'make-instance 'extension-class
               :name class-name
-              initargs)))))
-
-
-(defun %add-extension-script (extension script-name &rest initargs
-                              &key level &allow-other-keys)
-  (with-slots (script-table) extension
-    (unless (gethash script-name script-table)
-      (unless level
-        (setf (getf initargs :level) (level->pozzo (%level-of extension))))
-      (setf
-       (gethash script-name script-table)
-       (apply #'make-instance 'extension-script
-              :name script-name
               initargs)))))
 
 

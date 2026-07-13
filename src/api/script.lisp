@@ -1,32 +1,48 @@
 (cl:in-package #:pozzo)
 
+;;;
+;;; METHOD
+;;;
+(defclass script-method (extension-class-method)
+  ((bind-hash :initform nil :accessor %bind-hash-of)))
 
+
+(defun make-script-method (method-name
+                           &rest initargs
+                           &key &allow-other-keys)
+  (apply #'make-instance 'script-method
+         :name method-name
+         initargs))
+
+;;;
+;;; SCRIPT
+;;;
 (defclass extension-script (extension-prototype)
   ((name :initarg :name
          :initform (error ":name missing")
          :reader %name-of)
-   (path :initarg :path :initform nil)
-   (global :initarg :global :initform nil)
+   (path :initarg :path :reader %path-of)
    (level :initarg :level :initform nil)
-   (instance :initform nil)))
+   (address :initform 0 :accessor %address-of)
+   (method-table :initform (make-hash-table :test 'eq))
+   (hash-method-map :initform (make-hash-table :test 'eql))))
 
 
 (defun initialize-extension-script (script)
-  (with-slots (instance name path) script
+  (with-slots (instance name path hash-method-map) script
     (setf instance (construct name))
-    (when path
-      (let ((full-path (format nil "res://~A.pzo" path)))
-        (with-godot-string (path-str full-path)
-          (%godot:resource+set-path instance path-str)
-          (c-with ((err %godot:error))
-            (%godot:resource-saver+save (%godot:resource-saver)
-                                        (err &)
-                                        instance
-                                        path-str
-                                        :none)
-            (unless (eq err :ok)
-              (shout "Failed to save script ~A at ~A: ~A"
-                     name full-path err))))))))
+    (let ((full-path (format nil "res://~A.pzo" path)))
+      (with-godot-string (path-str full-path)
+        (%godot:resource+set-path instance path-str)
+        (c-with ((err %godot:error))
+          (%godot:resource-saver+save (%godot:resource-saver)
+                                      (err &)
+                                      instance
+                                      path-str
+                                      :none)
+          (unless (eq err :ok)
+            (shout "Failed to save script ~A at ~A: ~A"
+                   name full-path err)))))))
 
 
 (defcfunproto pozzo-script-method :void
@@ -42,63 +58,33 @@
   (cffi:null-pointer))
 
 
-(defpclass opaque-script-extension
-  ()
-  (:level :core)
-  (:inherit %godot:script-extension)
-  (:extension root))
+(defun add-script-method (script method-name &rest initargs
+                          &key &allow-other-keys)
+  (with-slots (method-table) script
+    (setf (gethash method-name method-table) (apply #'make-script-method
+                                                    method-name
+                                                    initargs))))
 
 
-(defpmethod (%get-instance-base-type :virtual) ((self opaque-script-extension))
-    %godot:string-name
-  (preturn-with (result)
-    ;; FIXME:
-    (initialize-godot-string-name result
-                                  (get-class-bind-name '%godot:node))))
+(defun %sync-method-hashes (script)
+  (with-slots (method-table hash-method-map) script
+    (c-with ((hash %godot:int))
+      (loop for method being the hash-value of method-table
+            unless (%bind-hash-of method)
+              do (with-godot-string-name (sname (%bind-of method))
+                   (%godot:string-name+hash sname (hash &))
+                   (setf (%bind-hash-of method) hash
+                         (gethash hash hash-method-map) method))))))
 
 
-(defpmethod (%can-instantiate :virtual) ((self opaque-script-extension))
-    %godot:bool
-  (preturn t))
-
-
-(defpmethod (%instance-create :virtual) ((self opaque-script-extension)
-                                         (obj (:pointer %godot:object)))
-    (:pointer :void)
-  (preturn (make-script-instance 'extension-name 'name self obj)))
-
-
-(defpmethod (%get-language :virtual) ((self opaque-script-extension))
-    (:pointer %godot:object)
-  (preturn (opaque-script-language-object)))
-
-
-(defpmethod (%is-abstract :virtual) ((self opaque-script-extension))
-    %godot:bool
-  (preturn nil))
-
-
-(defpmethod (%is-valid :virtual) ((self opaque-script-extension))
-    %godot:bool
-  (preturn t))
-
-
-(defpmethod (%has-source-code :virtual) ((self opaque-script-extension))
-    %godot:bool
-  (preturn nil))
-
-
-(defpmethod (%get-source-code :virtual) ((self opaque-script-extension))
-    %godot:string
-  (preturn-with (ret)
-    (initialize-godot-string ret "")))
-
-
-(defpmethod (%reload :virtual) ((self opaque-script-extension)
-                                (keep-state-p %godot:bool))
-    %godot:error
-  (declare (ignore keep-state-p))
-  (preturn :ok))
+(defun find-script-method-by-hash (script method-hash)
+  (with-slots (hash-method-map) script
+    (a:if-let ((method (gethash method-hash hash-method-map)))
+      (cffi:get-callback (call-function-name-of method))
+      (progn
+        (%sync-method-hashes script)
+        (a:when-let ((method (gethash method-hash hash-method-map)))
+          (cffi:get-callback (call-function-name-of method)))))))
 
 
 (defmacro defpscript (name &body slots-and-opts)
@@ -107,39 +93,15 @@
       (destructuring-bind (&key ((:for (instance-base-type)) '(%godot:object))
                              ((:level (level)) '(nil))
                              ((:extension (extension-name)) (error "Extension must be povided"))
-                             ((:path (path)) '(nil))
-                             ((:global (global-p)) '(nil)))
+                             ((:path (path)) '(nil)))
           (a:alist-plist opts)
         `(progn
            (cffi:defcstruct ,struct-name
              ,@slots)
-           (defpclass ,name
-             ((method-dict %godot:dictionary))
-             (:inherit pozzo-script-extension)
-             (:extension ,extension-name))
-           (defpmethod (%get-instance-base-type :virtual) ((self ,name)) %godot:string-name
-             (preturn-with (result)
-               (initialize-godot-string-name result
-                                             ,(get-class-bind-name instance-base-type))))
-           (defpmethod (%can-instantiate :virtual) ((self ,name)) %godot:bool
-             (preturn 1))
-           (defpmethod (%instance-create :virtual) ((self ,name) (obj (:pointer %godot:object)))
-               (:pointer :void)
-             (preturn (make-script-instance ',extension-name ',name self obj)))
-
            (eval-when (:compile-toplevel :load-toplevel :execute)
-             (register-extension-script ',name ',extension-name
-                                        :path ,path
-                                        :global ,global-p
-                                        :level ,level)))))))
-
-
-(defprotocallback (call-script-method %gdext:script-instance-call)
-    (instance-var method-string-name argv argc result error-info)
-  (shout-errors
-    (let* ((script (%get-instance-script isntance-var))
-           (method-dict (%get-script-method-dict script)))
-      #++(%godot:dictionary+get ))))
+             (%register-script ',name
+                               :path ,path
+                               :level ,level)))))))
 
 
 (defmethod expand-prototype-method-wrappers ((class extension-script)
@@ -160,8 +122,12 @@
                      cb-argc-var
                      cb-ret-var
                      cb-err-var)
-      `((defprotocallback (,call-name call-script-method)
-            (,cb-instance-var ,cb-args-var ,cb-argc-var ,cb-ret-var ,cb-err-var)
+      `((defprotocallback (,call-name pozzo-script-method)
+            (,cb-instance-var
+             ,cb-args-var
+             ,cb-argc-var
+             ,cb-ret-var
+             ,cb-err-var)
           (shout-errors
             #++(shout "SCALL ~A" ',call-name)
             (with-variant-arguments
@@ -172,12 +138,63 @@
                                  ,cb-instance-var ,result-var ,@(mapcar #'first parameters)))))
           (values))
         (eval-when (:compile-toplevel :load-toplevel :execute)
-          (register-extension-script-method ',method-name ',script-name
-                                            :bind ,bind-name
-                                            :static ,static
-                                            :virtual ,virtual
-                                            :pure ,pure
-                                            :const ,const
-                                            :call-function-name ',call-name
-                                            :parameters ',parameters
-                                            :return-type ',return-type))))))
+          (%register-script-method ',method-name ',script-name
+                                   :bind ,bind-name
+                                   :static ,static
+                                   :virtual ,virtual
+                                   :pure ,pure
+                                   :const ,const
+                                   :call-function-name ',call-name
+                                   :parameters ',parameters
+                                   :return-type ',return-type))))))
+
+;;;
+;;; REGISTRY
+;;;
+(defclass script-registry ()
+  ((script-table :initform (make-hash-table :test 'eq))
+   (path-script-map :initform (make-hash-table :test 'equal))
+   (address-script-map :initform (make-hash-table :test 'eql))))
+
+
+(defun make-script-registry ()
+  (make-instance 'script-registry))
+
+
+(declaim (inline find-script-by-address))
+(defun find-script-by-address (registry address)
+  (with-slots (address-script-map) registry
+    (gethash address address-script-map)))
+
+
+(defun ensure-script-address-mapping (registry path address)
+  (with-slots (path-script-map address-script-map) registry
+    (a:if-let ((script (gethash path path-script-map)))
+      (progn
+        (a:when-let ((current-script-address
+                      (gethash address address-script-map)))
+          (remhash current-script-address address-script-map))
+        (setf (gethash address address-script-map) script
+              (%address-of script) address))
+      (error "No script registered at path ~A" path))))
+
+
+(defun register-script (registry script-name &rest initargs
+                        &key &allow-other-keys)
+  (with-slots (script-table path-script-map) registry
+    (unless (gethash script-name script-table)
+      (let ((script (apply #'make-instance 'extension-script
+                           :name script-name
+                           initargs)))
+        (setf (gethash script-name script-table) script
+              (gethash (%path-of script) path-script-map) script)
+        script))))
+
+
+(defun register-script-method (registry method-name script-name
+                               &rest initargs
+                               &key &allow-other-keys)
+  (with-slots (script-table) registry
+    (a:if-let ((script (gethash script-name script-table)))
+      (apply #'add-script-method script method-name initargs)
+      (error "Script ~A not found" script-name))))

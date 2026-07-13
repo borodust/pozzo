@@ -31,8 +31,6 @@
   (cond
     ((gethash class-name *pozzo-class-bind-map*)
      :object)
-    ((gethash class-name *pozzo-enum-bind-map*)
-     :int)
     ((or (eq class-name :pointer) (and (listp class-name) (eq :pointer (first class-name))))
      :int)
     ((eq :void class-name)

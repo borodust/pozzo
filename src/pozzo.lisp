@@ -5,12 +5,12 @@
   ((godot-instance :initform nil)
    (extension-registry :initform (make-hash-table :test 'eq))
    (class-extension-table :initform (make-hash-table :test 'eq))
-   (script-extension-table :initform (make-hash-table :test 'eq))
    (class-metadata-table :initform (make-hash-table :test 'eql))
    (wrapper-registry :initform (make-hash-table :test 'eql :size 127))
    (module-registry :initform (make-hash-table :test 'eq))
 
    (root-extension :initform (make-extension 'root))
+   (script-registry :initform (make-script-registry))
 
    (stop-iterating-p :initform (cffi:foreign-alloc '%godot:bool))
    (action-queue :initform (muth:make-guarded-reference (list)))
@@ -544,15 +544,32 @@
             (%load-extension extension)))))))
 
 
-(defun register-extension-script (script-name extension-name &rest initargs
-                                  &key &allow-other-keys)
-  (with-slots (extension-registry script-extension-table) *pozzo*
-    (let ((extension (get-extension extension-name)))
-      (a:when-let ((script (apply #'%add-extension-script
-                                  extension script-name initargs)))
-        (setf (gethash script-name script-extension-table) extension-name)
-        (do-by-pozzo (:if-running t)
-          (%load-extension-script script))))))
+(defun %register-script (script-name &rest initargs
+                         &key &allow-other-keys)
+  (with-slots (script-registry) *pozzo*
+    (a:when-let ((script (apply #'register-script
+                                script-registry script-name initargs)))
+      (do-by-pozzo (:if-running t)
+        (%load-extension-script script)))))
+
+
+(declaim (inline %find-script-by-address))
+(defun %find-script-by-address (address)
+  (with-slots (script-registry) *pozzo*
+    (find-script-by-address script-registry address)))
+
+
+(declaim (inline %ensure-script-mappings))
+(defun %ensure-script-mappings (script-extension-instance-ptr)
+  (with-slots (script-registry) *pozzo*
+    (a:if-let ((script (find-script-by-address script-registry
+                                               (cffi:pointer-address script-extension-instance-ptr))))
+      script
+      (c-with ((path %godot:string))
+        (%godot:resource+get-path (unwrap script-extension-instance-ptr) (path &))
+        (ensure-script-address-mapping script-registry
+                                       (godot-string-to-lisp (path &))
+                                       (cffi:pointer-address script-extension-instance-ptr))))))
 
 
 (defun register-extension-class-method (method-name class-name &rest keys &key bind &allow-other-keys)
@@ -566,6 +583,13 @@
               (unless (virtualp new-extension-class-method)
                 (%register-method new-extension-class-method class-name extension))))))
       (error "Class ~A not found" class-name))))
+
+
+(defun %register-script-method (method-name script-name &rest keys
+                                &key &allow-other-keys)
+  (with-slots (script-registry) *pozzo*
+    (apply #'register-script-method
+           script-registry method-name script-name keys)))
 
 
 (defun register-extension-class-signal (signal-name class-name &rest keys &key properties &allow-other-keys)

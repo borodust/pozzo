@@ -85,3 +85,83 @@
     (with-godot-string (proto "pozzo://")
       (%godot:string+begins-with path (result &) proto))
     (preturn result)))
+
+
+;;;
+;;; SCRIPT EXTENSION
+;;;
+(defpclass opaque-script-extension
+  ()
+  (:level :core)
+  (:inherit %godot:script-extension)
+  (:extension root))
+
+
+(defpmethod (%get-instance-base-type :virtual) ((self opaque-script-extension))
+    %godot:string-name
+  (preturn-with (result)
+    ;; FIXME:
+    (initialize-godot-string-name result
+                                  (get-class-bind-name '%godot:node))))
+
+
+(defpmethod (%can-instantiate :virtual) ((self opaque-script-extension))
+    %godot:bool
+  (preturn t))
+
+
+(defpmethod (%instance-create :virtual) ((self opaque-script-extension)
+                                         (obj (:pointer %godot:object)))
+    (:pointer :void)
+  (%ensure-script-mappings self)
+  (preturn (make-script-instance 'extension-name 'name self obj)))
+
+
+(defpmethod (%get-language :virtual) ((self opaque-script-extension))
+    (:pointer %godot:object)
+  (preturn (opaque-script-language-object)))
+
+
+(defpmethod (%is-abstract :virtual) ((self opaque-script-extension))
+    %godot:bool
+  (preturn nil))
+
+
+(defpmethod (%is-valid :virtual) ((self opaque-script-extension))
+    %godot:bool
+  (preturn t))
+
+
+(defpmethod (%has-source-code :virtual) ((self opaque-script-extension))
+    %godot:bool
+  (preturn nil))
+
+
+(defpmethod (%get-source-code :virtual) ((self opaque-script-extension))
+    %godot:string
+  (preturn-with (ret)
+    (initialize-godot-string ret "")))
+
+
+(defpmethod (%reload :virtual) ((self opaque-script-extension)
+                                (keep-state-p %godot:bool))
+    %godot:error
+  (declare (ignore keep-state-p))
+  (preturn :ok))
+
+
+(defprotocallback (call-script-method %gdext:script-instance-call)
+    (instance-var method-string-name argv argc result error-info)
+  (shout-errors
+    (a:when-let ((script (%find-script-by-address
+                          (cffi:pointer-address instance-var))))
+      (c-with ((method-hash %godot:int))
+        (%godot:string-name+hash method-string-name (method-hash &))
+        (a:when-let ((method-ptr (find-script-method-by-hash script method-hash)))
+          (funcall-prototype method-ptr pozzo-script-method
+                             instance-var
+                             argv
+                             argc
+                             result
+                             error-info))))
+    (values)))
