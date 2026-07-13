@@ -23,14 +23,22 @@
     (godot-extension-bind-name class-name)))
 
 
+(defun enum-registered-p (enum-name)
+  (typep (ignore-errors (cffi::parse-type enum-name)) 'cffi::foreign-enum))
+
+
 (defun get-class-variant-kind (class-name)
   (cond
     ((gethash class-name *pozzo-class-bind-map*)
      :object)
+    ((gethash class-name *pozzo-enum-bind-map*)
+     :int)
     ((or (eq class-name :pointer) (and (listp class-name) (eq :pointer (first class-name))))
      :int)
     ((eq :void class-name)
      :nil)
+    ((enum-registered-p class-name)
+     :int)
     (t
      (godot-extension-variant-kind class-name))))
 

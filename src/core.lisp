@@ -1,19 +1,11 @@
 (cl:in-package #:pozzo)
 
 
-
-
 ;;;
 ;;; SCRIPT
 ;;;
 (defun init-opaque-script-language ()
-  (let ((opaque-script-lang-ptr (construct 'opaque-script-language)))
-    (c-with ((err %godot:error))
-      (%godot:engine+register-script-language (%godot:engine)
-                                              (err &)
-                                              opaque-script-lang-ptr)
-      (unless (eq err :ok)
-        (error "Failed to register PZOpaqueScript as an engine language")))))
+  (register-opaque-script-language (construct 'opaque-script-language)))
 
 
 (defpclass opaque-script-language
@@ -34,7 +26,8 @@
     (initialize-godot-string result "PZOpaqueScript")))
 
 
-(defpmethod (%get-extension :virtual) ((self opaque-script-language)) %godot:string
+(defpmethod (%get-extension :virtual) ((self opaque-script-language))
+    %godot:string
   (preturn-with (result)
     (initialize-godot-string result "pzo")))
 

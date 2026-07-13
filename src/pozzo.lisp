@@ -14,7 +14,8 @@
 
    (stop-iterating-p :initform (cffi:foreign-alloc '%godot:bool))
    (action-queue :initform (muth:make-guarded-reference (list)))
-   (string-name-cache :initform (make-hash-table :test 'eq))))
+   (string-name-cache :initform (make-hash-table :test 'eq))
+   (opaque-script-language-object :initform (cffi:null-pointer))))
 
 
 (defvar *pozzo* (make-instance 'pozzo))
@@ -602,3 +603,21 @@
        (prog1 (c-ref (get-variant-internal-ptr ,result-variant) %godot:error)
          (release-variant (,signal-name-variant &))
          (release-variant (,result-variant &))))))
+
+
+(defun register-opaque-script-language (obj-ptr)
+  (with-slots (opaque-script-language-object) *pozzo*
+    (unless (cffi:null-pointer-p opaque-script-language-object)
+      (error "Pozzo Opaque Script language already registered"))
+    (c-with ((err %godot:error))
+      (%godot:engine+register-script-language (%godot:engine)
+                                              (err &)
+                                              obj-ptr)
+      (unless (eq err :ok)
+        (error "Failed to register PZOpaqueScript as an engine language"))
+      (setf opaque-script-language-object obj-ptr))))
+
+
+(declaim (inline opaque-script-language-object))
+(defun opaque-script-language-object ()
+  (slot-value *pozzo* 'opaque-script-language-object))

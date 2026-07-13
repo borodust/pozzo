@@ -42,6 +42,65 @@
   (cffi:null-pointer))
 
 
+(defpclass opaque-script-extension
+  ()
+  (:level :core)
+  (:inherit %godot:script-extension)
+  (:extension root))
+
+
+(defpmethod (%get-instance-base-type :virtual) ((self opaque-script-extension))
+    %godot:string-name
+  (preturn-with (result)
+    ;; FIXME:
+    (initialize-godot-string-name result
+                                  (get-class-bind-name '%godot:node))))
+
+
+(defpmethod (%can-instantiate :virtual) ((self opaque-script-extension))
+    %godot:bool
+  (preturn t))
+
+
+(defpmethod (%instance-create :virtual) ((self opaque-script-extension)
+                                         (obj (:pointer %godot:object)))
+    (:pointer :void)
+  (preturn (make-script-instance 'extension-name 'name self obj)))
+
+
+(defpmethod (%get-language :virtual) ((self opaque-script-extension))
+    (:pointer %godot:object)
+  (preturn (opaque-script-language-object)))
+
+
+(defpmethod (%is-abstract :virtual) ((self opaque-script-extension))
+    %godot:bool
+  (preturn nil))
+
+
+(defpmethod (%is-valid :virtual) ((self opaque-script-extension))
+    %godot:bool
+  (preturn t))
+
+
+(defpmethod (%has-source-code :virtual) ((self opaque-script-extension))
+    %godot:bool
+  (preturn nil))
+
+
+(defpmethod (%get-source-code :virtual) ((self opaque-script-extension))
+    %godot:string
+  (preturn-with (ret)
+    (initialize-godot-string ret "")))
+
+
+(defpmethod (%reload :virtual) ((self opaque-script-extension)
+                                (keep-state-p %godot:bool))
+    %godot:error
+  (declare (ignore keep-state-p))
+  (preturn :ok))
+
+
 (defmacro defpscript (name &body slots-and-opts)
   (destructuring-bind (slots &rest opts) slots-and-opts
     (let ((struct-name (format-secret-symbol name 'script-data)))
@@ -56,7 +115,7 @@
              ,@slots)
            (defpclass ,name
              ((method-dict %godot:dictionary))
-             (:inherit %godot:script-extension)
+             (:inherit pozzo-script-extension)
              (:extension ,extension-name))
            (defpmethod (%get-instance-base-type :virtual) ((self ,name)) %godot:string-name
              (preturn-with (result)
