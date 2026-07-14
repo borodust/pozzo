@@ -205,13 +205,15 @@
 
 
 (defun get-extension-class (extension-class-name)
-  (with-slots (class-extension-table) *pozzo*
-    (a:if-let ((extension-name (gethash extension-class-name class-extension-table)))
-      (let ((extension (get-extension extension-name)))
-        (a:if-let ((class (gethash extension-class-name (%class-table-of extension))))
-          class
-          (error "Class ~A not found in extension ~A" extension-class-name extension-name)))
-      (error "Extension not found for class ~A" extension-class-name))))
+  (with-slots (class-extension-table script-registry) *pozzo*
+    (a:if-let ((script (find-script script-registry extension-class-name)))
+      script
+      (a:if-let ((extension-name (gethash extension-class-name class-extension-table)))
+        (let ((extension (get-extension extension-name)))
+          (a:if-let ((class (gethash extension-class-name (%class-table-of extension))))
+            class
+            (error "Class ~A not found in extension ~A" extension-class-name extension-name)))
+        (error "Extension not found for class ~A" extension-class-name)))))
 
 
 (cffi:defcstruct pozzo-method
@@ -353,11 +355,7 @@
             do (%register-signal signal-name signal-properties (%name-of extension-class) extension))
       (init-extension-class extension-class))
     (when init-fu
-      (funcall init-fu (level->pozzo init-level)))
-
-    (when (eq init-level :initialization-scene)
-      (loop for script being the hash-value of (%script-table-of extension)
-            do (%load-extension-script script))))
+      (funcall init-fu (level->pozzo init-level))))
   (values))
 
 
@@ -393,11 +391,6 @@
             (init-struct :initialize) (get-protocallback (level-initializer-name-of extension))
             (init-struct :deinitialize) (get-protocallback (level-deinitializer-name-of extension)))))
   t)
-
-
-(defun %load-extension-script (script)
-  (shout "Loading script ~S" (%name-of script))
-  (initialize-extension-script script))
 
 
 (defun %load-extension (extension)
@@ -558,16 +551,21 @@
 (defun %register-script (script-name &rest initargs
                          &key &allow-other-keys)
   (with-slots (script-registry) *pozzo*
-    (a:when-let ((script (apply #'register-script
-                                script-registry script-name initargs)))
-      (do-by-pozzo (:if-running t)
-        (%load-extension-script script)))))
+    (apply #'register-script script-registry script-name initargs)))
 
 
 (declaim (inline %find-script-by-address))
 (defun %find-script-by-address (address)
   (with-slots (script-registry) *pozzo*
     (find-script-by-address script-registry address)))
+
+
+(declaim (inline %get-script))
+(defun %get-script (name)
+  (with-slots (script-registry) *pozzo*
+    (a:if-let ((script (find-script script-registry name)))
+      script
+      (error "Script with name ~A not found" name))))
 
 
 (declaim (inline %ensure-script-mappings))
@@ -578,9 +576,9 @@
       script
       (c-with ((path %godot:string))
         (%godot:resource+get-path (unwrap script-extension-instance-ptr) (path &))
-        (ensure-script-address-mapping script-registry
-                                       (godot-string-to-lisp (path &))
-                                       (cffi:pointer-address script-extension-instance-ptr))))))
+        (ensure-script-instance-mapping script-registry
+                                        (godot-string-to-lisp (path &))
+                                        script-extension-instance-ptr)))))
 
 
 (defun register-extension-class-method (method-name class-name &rest keys &key bind &allow-other-keys)

@@ -79,14 +79,14 @@
 
 
 (defun memzero (ptr type &optional count)
-  (%memset ptr 0 (* (cffi:foreign-type-size type) count)))
+  (%memset ptr 0 (* (cffi:foreign-type-size type) (or count 1))))
 
 
 (define-compiler-macro memzero (&whole whole ptr type &optional count)
   (labels ((%expand-size (type)
-             (if (numberp count)
-                 (* (cffi:foreign-type-size type) count)
-                 `(* ,(cffi:foreign-type-size type) ,count)))
+             (if (or (numberp count) (null count))
+                 (* (cffi:foreign-type-size type) (or count 1))
+                 `(* ,(cffi:foreign-type-size type) (or ,count 1))))
            (%expand-body (type)
              `(%memset ,ptr 0 ,(%expand-size type))))
     (cond
@@ -102,18 +102,18 @@
 
 (defun memallocz (type &optional (count 1))
   (let ((ptr (memalloc type count)))
-    (memzero ptr type)
+    (memzero ptr type count)
     ptr))
 
 
-(define-compiler-macro memallocz (&whole whole type &optional (count 1))
+(define-compiler-macro memallocz (&whole whole type &optional count)
   (if (or (and (listp type)
                (eq 'quote (first type)))
           (keywordp type))
       (a:with-gensyms (ptr)
-        (if (numberp count)
-            `(let ((,ptr (memalloc ,type ,count)))
-               (memzero ,ptr ,type ,count)
+        (if (or (numberp count) (null count))
+            `(let ((,ptr (memalloc ,type ,(or count 1))))
+               (memzero ,ptr ,type ,(or count 1))
                ,ptr)
             (a:once-only (count)
               `(let ((,ptr (memalloc ,type ,count)))
@@ -355,12 +355,12 @@
   (a:format-symbol '%%pozzo "~A:~A~~~{~A~}" (package-name (symbol-package symbol)) symbol postfixes))
 
 
-(defmacro with-variant ((var type value-ptr) &body body)
+(defmacro with-variant ((var type value) &body body)
   (a:with-gensyms (variant)
-    (a:once-only (value-ptr)
+    (a:once-only (value)
       `(c-with ((,variant %godot:variant))
          (initialize-variant-from-value (,variant &)
-                                        ,value-ptr
+                                        ,value
                                         ',type)
          (unwind-protect
               (let ((,var (,variant &)))

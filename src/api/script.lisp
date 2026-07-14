@@ -21,32 +21,26 @@
   ((name :initarg :name
          :initform (error ":name missing")
          :reader %name-of)
-   (path :initarg :path :reader %path-of)
-   (struct-name :initarg :data-struct-name
-                :reader %data-struct-name-of)
+   (path :reader %path-of)
+   (struct :initarg :struct
+           :reader %struct-name-of)
    (base-type :initarg :base-type
               :reader %base-type-of)
    (level :initarg :level :initform nil)
-   (address :initform 0 :accessor %address-of)
+   (instance :initform (cffi:null-pointer) :accessor %instance-of)
    (method-table :initform (make-hash-table :test 'eq))
    (hash-method-map :initform (make-hash-table :test 'eql))))
 
 
-(defun initialize-extension-script (script)
-  (with-slots (instance name path hash-method-map) script
-    (setf instance (construct name))
-    (let ((full-path (format nil "res://~A.pzo" path)))
-      (with-godot-string (path-str full-path)
-        (%godot:resource+set-path instance path-str)
-        (c-with ((err %godot:error))
-          (%godot:resource-saver+save (%godot:resource-saver)
-                                      (err &)
-                                      instance
-                                      path-str
-                                      :none)
-          (unless (eq err :ok)
-            (shout "Failed to save script ~A at ~A: ~A"
-                   name full-path err)))))))
+(defmethod initialize-instance :after ((this extension-script)
+                                       &key ((:path provided-path)))
+  (with-slots (name path) this
+    (setf path
+          (if provided-path
+              (format nil "pozzo://script/expl/~A.pzo" provided-path)
+              (format nil "pozzo://script/impl/~(~A~)/~(~A~).pzo"
+                      (package-name (symbol-package name))
+                      (symbol-name name))))))
 
 
 (defcfunproto pozzo-script-method :void
@@ -86,6 +80,16 @@
           (cffi:get-callback (call-function-name-of method)))))))
 
 
+(defun ensure-script-instance (script)
+  (with-slots (instance path) script
+    (when (cffi:null-pointer-p instance)
+      (let ((instaptr (construct 'opaque-script-extension)))
+        (with-godot-string (path-gstr path)
+          (%godot:resource+set-path instaptr path-gstr))
+        (setf instance instaptr)))
+    instance))
+
+
 (defmacro defpscript (name &body slots-and-opts)
   (destructuring-bind (slots &rest opts) slots-and-opts
     (let ((struct-name (format-secret-symbol name 'script-data)))
@@ -101,7 +105,7 @@
                                :path ,path
                                :base-type ',instance-base-type
                                :level ,level
-                               :data-struct-name ',struct-name)))))))
+                               :struct ',struct-name)))))))
 
 
 (defmethod expand-prototype-method-wrappers ((class extension-script)
@@ -128,14 +132,21 @@
              ,cb-argc-var
              ,cb-ret-var
              ,cb-err-var)
+          (declare (ignorable ,cb-args-var ,cb-ret-var))
           (shout-errors
             #++(shout "SCALL ~A" ',call-name)
             (with-variant-arguments
                 (,@(mapcar #'first parameters))
                 (,cb-args-var ,cb-argc-var ,cb-err-var ,@parameters)
-              (with-variant-result (,result-var) (,cb-ret-var ,return-type)
-                (funcall-pmethod '(,script-name ,method-name)
-                                 ,cb-instance-var ,result-var ,@(mapcar #'first parameters)))))
+              (,@(if (eq return-type :void)
+                     '(progn)
+                     `(with-variant-result (,result-var) (,cb-ret-var ,return-type)))
+               (funcall-pmethod '(,script-name ,method-name)
+                                ,cb-instance-var
+                                ,(if (eq return-type :void)
+                                     '(cffi:null-pointer)
+                                     result-var)
+                                ,@(mapcar #'first parameters)))))
           (values))
         (eval-when (:compile-toplevel :load-toplevel :execute)
           (%register-script-method ',method-name ',script-name
@@ -168,15 +179,24 @@
     (gethash address address-script-map)))
 
 
-(defun ensure-script-address-mapping (registry path address)
+(declaim (inline find-script))
+(defun find-script (registry name)
+  (with-slots (script-table) registry
+    (gethash name script-table)))
+
+
+(defun ensure-script-instance-mapping (registry path instance-ptr)
   (with-slots (path-script-map address-script-map) registry
     (a:if-let ((script (gethash path path-script-map)))
       (prog1 script
-        (a:when-let ((current-script-address
-                      (gethash address address-script-map)))
-          (remhash current-script-address address-script-map))
-        (setf (gethash address address-script-map) script
-              (%address-of script) address))
+        (unless (and (%instance-of script)
+                     (cffi:pointer-eq instance-ptr (%instance-of script)))
+          (let ((new-address (cffi:pointer-address instance-ptr)))
+            (when (%instance-of script)
+              (remhash (cffi:pointer-address (%instance-of script))
+                       address-script-map))
+            (setf (gethash new-address address-script-map) script
+                  (%instance-of script) instance-ptr))))
       (error "No script registered at path ~A" path))))
 
 

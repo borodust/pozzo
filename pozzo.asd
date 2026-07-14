@@ -44,4 +44,6 @@
   :components ((:module "sprite"
                 :components ((:file "example")))
                (:module "canvas"
+                :components ((:file "example")))
+               (:module "script"
                 :components ((:file "example")))))

@@ -183,7 +183,7 @@
                                  instance-var
                                  argv
                                  argc
-                                 result
+                                 (or result (cffi:null-pointer))
                                  error-info)))
           (progn
             #++(report-missing-method-error error-info)))))
@@ -227,3 +227,12 @@
     (instance-var)
   (declare (ignore instance-var))
   (opaque-script-language-object))
+
+
+(declaim (inline attach-script))
+(defun attach-script (godot-object script-name)
+  (let ((script (%get-script script-name)))
+    (c-with ((ptr :pointer))
+      (setf ptr (ensure-script-instance script))
+      (with-variant (var %godot:script-extension ptr)
+        (%godot:object+set-script godot-object var)))))

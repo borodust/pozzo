@@ -19,7 +19,7 @@
 
 
 (declaim (inline initialize-variant-from-value))
-(defun initialize-variant-from-value (uninitialized-variant-ptr value-ptr class-name)
+(defun initialize-variant-from-value (uninitialized-variant-ptr value class-name)
   (let* ((variant-kind (godot-extension-variant-kind class-name))
          (variant-ctor (%gdext:get-variant-from-type-constructor variant-kind)))
     (flet ((%funcall-ctor (variant-ctor uninitialized-variant-ptr value-ptr)
@@ -28,70 +28,92 @@
                                 value-ptr)))
       (declare (inline %funcall-ctor))
       (cond
-        ((cffi:pointerp value-ptr)
-         (%funcall-ctor variant-ctor uninitialized-variant-ptr value-ptr))
+        ((eq variant-kind :object)
+         (c-with ((ptr :pointer))
+           (setf ptr value)
+           (%funcall-ctor variant-ctor uninitialized-variant-ptr (ptr &))))
+
+        ((cffi:pointerp value)
+         (%funcall-ctor variant-ctor uninitialized-variant-ptr value))
 
         ((eq class-name '%godot:bool)
          (c-with ((val %godot:bool))
-           (setf val value-ptr)
+           (setf val value)
            (%funcall-ctor variant-ctor uninitialized-variant-ptr (val &))))
 
         ((eq class-name '%godot:int)
          (c-with ((val %godot:int))
-           (setf val (truncate value-ptr))
+           (setf val (truncate value))
            (%funcall-ctor variant-ctor uninitialized-variant-ptr (val &))))
 
         ((eq class-name '%godot:float)
          (c-with ((val %godot:float))
-           (setf val (float value-ptr 0d0))
+           (setf val (float value 0d0))
            (%funcall-ctor variant-ctor uninitialized-variant-ptr (val &))))
 
         ((eq class-name '%godot:string)
-         (with-godot-string (val (the string value-ptr))
+         (with-godot-string (val (the string value))
            (%funcall-ctor variant-ctor uninitialized-variant-ptr val)))
 
         ((eq class-name '%godot:string-name)
-         (with-godot-string-name (val (the string value-ptr))
+         (with-godot-string-name (val (the string value))
            (%funcall-ctor variant-ctor uninitialized-variant-ptr val)))
 
-        (t (error "Unexpected variant initialization value ~A for variant kind ~A" value-ptr variant-kind))))))
+        (t (error "Unexpected variant initialization value ~A for variant kind ~A" value variant-kind))))))
 
 
-(define-compiler-macro initialize-variant-from-value (&whole whole uninitialized-variant-ptr value-ptr class-name)
-  (if (and (listp class-name)
-           (eq 'quote (first class-name))
-           (member (second class-name) '(%godot:bool
-                                         %godot:int
-                                         %godot:float
-                                         %godot:string
-                                         %godot:string-name)))
-      (let* ((class-name (second class-name))
-             (variant-kind (godot-extension-variant-kind class-name)))
-        (a:with-gensyms (variant-ctor value)
-          (a:once-only (value-ptr)
-            `(let ((,variant-ctor (%gdext:get-variant-from-type-constructor ,variant-kind)))
-               (if (cffi:pointerp ,value-ptr)
-                   (funcall-prototype ,variant-ctor %gdext:variant-from-type-constructor-func
-                                      ,uninitialized-variant-ptr
-                                      ,value-ptr)
-                   ,(flet ((%expand-primitive (type)
-                             `(c-with ((,value ,type))
-                                (setf ,value ,value-ptr)
-                                (funcall-prototype ,variant-ctor
-                                                   %gdext:variant-from-type-constructor-func
-                                                   ,uninitialized-variant-ptr
-                                                   (,value &))))
-                           (%expand-string (macro)
-                             `(,macro (,value (the string ,value-ptr))
-                                      (funcall-prototype ,variant-ctor
-                                                         %gdext:variant-from-type-constructor-func
-                                                         ,uninitialized-variant-ptr
-                                                         ,value))))
-                      (ecase class-name
-                        ((%godot:bool %godot:int %godot:float) (%expand-primitive class-name))
-                        (%godot:string (%expand-string 'with-godot-string))
-                        (%godot:string-name (%expand-string 'with-godot-string-name)))))))))
-      whole))
+(define-compiler-macro initialize-variant-from-value (&whole whole uninitialized-variant-ptr value class-name)
+  (let* ((class-name (when (and (listp class-name)
+                                (eq 'quote (first class-name)))
+                       (second class-name)))
+         (variant-kind (when class-name
+                         (godot-extension-variant-kind class-name))))
+    (a:with-gensyms (variant-ctor value-ptr)
+      (flet ((%expand-direct (value)
+               `(funcall-prototype (%gdext:get-variant-from-type-constructor :object)
+                                   %gdext:variant-from-type-constructor-func
+                                   ,uninitialized-variant-ptr
+                                   ,value))
+             (%expand-object ()
+               `(c-with ((,value-ptr :pointer))
+                  (setf ,value-ptr ,value)
+                  (funcall-prototype (%gdext:get-variant-from-type-constructor :object)
+                                     %gdext:variant-from-type-constructor-func
+                                     ,uninitialized-variant-ptr
+                                     (,value-ptr &))))
+
+             (%expand-primitive (type value)
+               `(c-with ((,value-ptr ,type))
+                  (setf ,value-ptr ,value)
+                  (funcall-prototype ,variant-ctor
+                                     %gdext:variant-from-type-constructor-func
+                                     ,uninitialized-variant-ptr
+                                     (,value-ptr &))))
+             (%expand-string (macro value)
+               `(,macro (,value-ptr (the string ,value))
+                        (funcall-prototype ,variant-ctor
+                                           %gdext:variant-from-type-constructor-func
+                                           ,uninitialized-variant-ptr
+                                           ,value-ptr))))
+        (cond
+          ((eq variant-kind :object)
+           (%expand-object))
+
+          ((member class-name '(%godot:bool
+                                %godot:int
+                                %godot:float
+                                %godot:string
+                                %godot:string-name))
+           (a:once-only (value)
+             `(let ((,variant-ctor (%gdext:get-variant-from-type-constructor ,variant-kind)))
+                (if (cffi:pointerp ,value)
+                    ,(%expand-direct value)
+                    ,(ecase class-name
+                       ((%godot:bool %godot:int %godot:float) (%expand-primitive class-name value))
+                       (%godot:string (%expand-string 'with-godot-string value))
+                       (%godot:string-name (%expand-string 'with-godot-string-name value)))))))
+
+          (t whole))))))
 
 
 (declaim (inline release-variant))

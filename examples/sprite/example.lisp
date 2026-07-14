@@ -29,13 +29,6 @@
   (:extension sprite-example))
 
 
-(pozzo:defpscript yo
-  ()
-  (:for %godot:object)
-  (:path "scripts/yo")
-  (:extension sprite-example))
-
-
 (pozzo:defpmethod (%process :virtual) ((self hello-godot) (delta %godot:float)) :void
   (incf (hello-godot-time-passed self) (* (hello-godot-speed self) delta))
 

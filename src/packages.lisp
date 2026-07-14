@@ -54,6 +54,8 @@
            #:construct
            #:destruct
 
+           #:attach-script
+
            #:register-module
            #:make-module
            #:initialize-module
