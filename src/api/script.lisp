@@ -22,6 +22,10 @@
          :initform (error ":name missing")
          :reader %name-of)
    (path :initarg :path :reader %path-of)
+   (struct-name :initarg :data-struct-name
+                :reader %data-struct-name-of)
+   (base-type :initarg :base-type
+              :reader %base-type-of)
    (level :initarg :level :initform nil)
    (address :initform 0 :accessor %address-of)
    (method-table :initform (make-hash-table :test 'eq))
@@ -51,11 +55,6 @@
   (argc %gdext:int)
   (result %gdext:variant-ptr)
   (error-info (:pointer %gdext:call-error)))
-
-
-(defun make-script-instance (extension script-name script object)
-  (declare (ignore extension script-name script object))
-  (cffi:null-pointer))
 
 
 (defun add-script-method (script method-name &rest initargs
@@ -92,7 +91,6 @@
     (let ((struct-name (format-secret-symbol name 'script-data)))
       (destructuring-bind (&key ((:for (instance-base-type)) '(%godot:object))
                              ((:level (level)) '(nil))
-                             ((:extension (extension-name)) (error "Extension must be povided"))
                              ((:path (path)) '(nil)))
           (a:alist-plist opts)
         `(progn
@@ -101,7 +99,9 @@
            (eval-when (:compile-toplevel :load-toplevel :execute)
              (%register-script ',name
                                :path ,path
-                               :level ,level)))))))
+                               :base-type ',instance-base-type
+                               :level ,level
+                               :data-struct-name ',struct-name)))))))
 
 
 (defmethod expand-prototype-method-wrappers ((class extension-script)
@@ -148,6 +148,7 @@
                                    :parameters ',parameters
                                    :return-type ',return-type))))))
 
+
 ;;;
 ;;; REGISTRY
 ;;;
@@ -170,7 +171,7 @@
 (defun ensure-script-address-mapping (registry path address)
   (with-slots (path-script-map address-script-map) registry
     (a:if-let ((script (gethash path path-script-map)))
-      (progn
+      (prog1 script
         (a:when-let ((current-script-address
                       (gethash address address-script-map)))
           (remhash current-script-address address-script-map))

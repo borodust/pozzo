@@ -3,12 +3,14 @@
 
 (defmacro defpclass (name &body slots-and-opts)
   (destructuring-bind (slots &rest opts) slots-and-opts
-    (destructuring-bind (&key extension signals inherit level
+    (destructuring-bind (&key signals inherit level
+                           ((:extension (extension-name)) '(nil))
                            ((:string-name (string-name)) '(nil))
                            ((:init (init-fu)) '(nil))
                            ((:deinit (fini-fu)) '(nil)))
         (a:alist-plist opts)
-      (let* ((extension-name (first extension))
+      (let* ((implicit-extension-p (null extension-name))
+             (extension-name (or extension-name (format-secret-symbol name 'class-implicit-extension)))
              (parent-name (first inherit))
              (struct-name (format-secret-symbol name 'class-data))
              (bind-name (or string-name
@@ -36,6 +38,10 @@
                   finally (return (values struct-slots initforms properties)))
           (a:with-gensyms (ptr)
             `(progn
+               ,@(when implicit-extension-p
+                   `((eval-when (:compile-toplevel :load-toplevel :execute)
+                       (defpextension ,extension-name
+                         (:level ,(or level :scene))))))
                (eval-when (:compile-toplevel :load-toplevel :execute)
                  (register-extension-class ',name ',extension-name
                                            :bind ,bind-name

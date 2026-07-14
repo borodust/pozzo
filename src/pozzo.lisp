@@ -12,6 +12,7 @@
    (root-extension :initform (make-extension 'root))
    (script-registry :initform (make-script-registry))
 
+   (opaque-script-instance-info)
    (stop-iterating-p :initform (cffi:foreign-alloc '%godot:bool))
    (action-queue :initform (muth:make-guarded-reference (list)))
    (string-name-cache :initform (make-hash-table :test 'eq))
@@ -59,11 +60,21 @@
 (defun start-pozzo (godot-instance)
   (with-slots ((this-godot-instance godot-instance)
                extension-registry
-               module-registry)
+               module-registry
+               opaque-script-instance-info)
       *pozzo*
     (when this-godot-instance
       (error "Godot instance already acquired"))
     (setf this-godot-instance godot-instance)
+    (let ((info (memallocz '(:struct %gdext:script-instance-info-3))))
+      (c-val ((info (:struct %gdext:script-instance-info-3)))
+        (setf (info :call-func) (get-protocallback 'script-instance-call-method)
+              (info :has-method-func) (get-protocallback 'script-instance-has-method)
+              (info :get-owner-func) (get-protocallback 'script-instance-get-owner)
+              (info :get-script-func) (get-protocallback 'script-instance-get-script)
+              (info :get-language-func) (get-protocallback 'script-instance-get-language)
+              (info :free-func) (get-protocallback 'script-instance-free)))
+      (setf opaque-script-instance-info info))
 
     (c-with ((result %godot:bool))
       (%godot:godot-instance+start godot-instance (result &))
@@ -645,3 +656,8 @@
 (declaim (inline opaque-script-language-object))
 (defun opaque-script-language-object ()
   (slot-value *pozzo* 'opaque-script-language-object))
+
+
+(declaim (inline opaque-script-default-instance-info))
+(defun opaque-script-default-instance-info ()
+  (slot-value *pozzo* 'opaque-script-instance-info))

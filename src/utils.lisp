@@ -72,10 +72,54 @@
       (t (%expand-body `(cffi:foreign-type-size ,type))))))
 
 
-(cffi:defcfun (memset "memset") (:pointer :void)
+(cffi:defcfun (%memset "memset") (:pointer :void)
   (data-ptr (:pointer :void))
   (value :int)
   (byte-count :size))
+
+
+(defun memzero (ptr type &optional count)
+  (%memset ptr 0 (* (cffi:foreign-type-size type) count)))
+
+
+(define-compiler-macro memzero (&whole whole ptr type &optional count)
+  (labels ((%expand-size (type)
+             (if (numberp count)
+                 (* (cffi:foreign-type-size type) count)
+                 `(* ,(cffi:foreign-type-size type) ,count)))
+           (%expand-body (type)
+             `(%memset ,ptr 0 ,(%expand-size type))))
+    (cond
+      ((and (listp type)
+            (eq 'quote (first type)))
+       (%expand-body (second type)))
+
+      ((keywordp type)
+       (%expand-body type))
+
+      (t whole))))
+
+
+(defun memallocz (type &optional (count 1))
+  (let ((ptr (memalloc type count)))
+    (memzero ptr type)
+    ptr))
+
+
+(define-compiler-macro memallocz (&whole whole type &optional (count 1))
+  (if (or (and (listp type)
+               (eq 'quote (first type)))
+          (keywordp type))
+      (a:with-gensyms (ptr)
+        (if (numberp count)
+            `(let ((,ptr (memalloc ,type ,count)))
+               (memzero ,ptr ,type ,count)
+               ,ptr)
+            (a:once-only (count)
+              `(let ((,ptr (memalloc ,type ,count)))
+                 (memzero ,ptr ,type ,count)
+                 ,ptr))))
+      whole))
 
 
 (declaim (inline memfree))
@@ -93,8 +137,7 @@
                  (destructuring-bind (var type &key count zero) (first bindings)
                    `(let ((,var (memalloc ',type ,@(when count (list count)))))
                       ,@(when zero
-                          `(memset ,var 0 (* (cffi:foreign-type-size type)
-                                             ,(or count 1))))
+                          `(memzero ,var ,type ,(or count 1)))
                       (unwind-protect
                            (c-val ((,var ,type))
                              ,(%expand-c-with (rest bindings) body))

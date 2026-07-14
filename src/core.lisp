@@ -113,8 +113,8 @@
 (defpmethod (%instance-create :virtual) ((self opaque-script-extension)
                                          (obj (:pointer %godot:object)))
     (:pointer :void)
-  (%ensure-script-mappings self)
-  (preturn (make-script-instance 'extension-name 'name self obj)))
+  (let ((script (%ensure-script-mappings self)))
+    (preturn (make-script-instance script self obj))))
 
 
 (defpmethod (%get-language :virtual) ((self opaque-script-extension))
@@ -150,18 +150,80 @@
   (preturn :ok))
 
 
-(defprotocallback (call-script-method %gdext:script-instance-call)
+
+(cffi:defcstruct script
+  ;; pointer to OpaqueScriptExtension class instance
+  (script :pointer)
+  ;; pointer to script instance (attachable to Godot object) data
+  (data :pointer))
+
+
+(defun make-script-instance (script script-extension-object godot-object)
+  (let* ((pozzo-object (memalloc '(:struct script)))
+         (data (memallocz `(:struct ,(%struct-name-of script))))
+         (wrapper (make-pozzo-wrapper godot-object pozzo-object)))
+    (c-val ((pozzo-object (:struct script)))
+      (setf (pozzo-object :script) script-extension-object
+            (pozzo-object :data) data))
+    (%gdext:script-instance-create3 (opaque-script-default-instance-info)
+                                    wrapper)))
+
+
+(defprotocallback (script-instance-call-method %gdext:script-instance-call)
     (instance-var method-string-name argv argc result error-info)
   (shout-errors
-    (a:when-let ((script (%find-script-by-address
-                          (cffi:pointer-address instance-var))))
-      (c-with ((method-hash %godot:int))
-        (%godot:string-name+hash method-string-name (method-hash &))
-        (a:when-let ((method-ptr (find-script-method-by-hash script method-hash)))
-          (funcall-prototype method-ptr pozzo-script-method
-                             instance-var
-                             argv
-                             argc
-                             result
-                             error-info))))
+    (let ((script-ptr (get-pozzo-object instance-var)))
+      (c-val ((script-ptr (:struct script)))
+        (a:if-let ((script (%find-script-by-address
+                            (cffi:pointer-address (script-ptr :script)))))
+          (c-with ((method-hash %godot:int))
+            (%godot:string-name+hash method-string-name (method-hash &))
+            (a:when-let ((method-ptr (find-script-method-by-hash script method-hash)))
+              (funcall-prototype method-ptr pozzo-script-method
+                                 instance-var
+                                 argv
+                                 argc
+                                 result
+                                 error-info)))
+          (progn
+            #++(report-missing-method-error error-info)))))
     (values)))
+
+
+(defprotocallback (script-instance-has-method %gdext:script-instance-has-method)
+    (instance-var method-string-name)
+  (let ((script-ptr (get-pozzo-object instance-var)))
+    (c-val ((script-ptr (:struct script)))
+      (a:if-let ((script (%find-script-by-address
+                          (cffi:pointer-address (script-ptr :script)))))
+        (c-with ((method-hash %godot:int))
+          (%godot:string-name+hash method-string-name (method-hash &))
+          (if (find-script-method-by-hash script method-hash) 1 0))
+        0))))
+
+
+(defprotocallback (script-instance-get-owner %gdext:script-instance-get-owner)
+    (instance-var)
+  (unwrap instance-var))
+
+
+(defprotocallback (script-instance-get-script %gdext:script-instance-get-script)
+    (instance-var)
+  (let ((script-ptr (get-pozzo-object instance-var)))
+    (c-ref script-ptr (:struct script) :script)))
+
+
+(defprotocallback (script-instance-free %gdext:script-instance-free)
+    (instance-var)
+  (let ((script-ptr (get-pozzo-object instance-var)))
+    (c-val ((script-ptr (:struct script)))
+      (memfree (script-ptr :data)))
+    (memfree script-ptr))
+  (destroy-pozzo-wrapper instance-var)
+  (values))
+
+
+(defprotocallback (script-instance-get-language %gdext:script-instance-get-language)
+    (instance-var)
+  (declare (ignore instance-var))
+  (opaque-script-language-object))
