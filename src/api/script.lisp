@@ -80,6 +80,12 @@
           (cffi:get-callback (call-function-name-of method)))))))
 
 
+(defun find-script-method (script method-name)
+  (with-slots (method-table) script
+    (a:when-let ((method (gethash method-name method-table)))
+      (cffi:get-callback (call-function-name-of method)))))
+
+
 (defun ensure-script-instance (script)
   (with-slots (instance path) script
     (when (cffi:null-pointer-p instance)

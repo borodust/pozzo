@@ -137,7 +137,7 @@
                  (destructuring-bind (var type &key count zero) (first bindings)
                    `(let ((,var (memalloc ',type ,@(when count (list count)))))
                       ,@(when zero
-                          `(memzero ,var ,type ,(or count 1)))
+                          `((memzero ,var ',type ,(or count 1))))
                       (unwind-protect
                            (c-val ((,var ,type))
                              ,(%expand-c-with (rest bindings) body))

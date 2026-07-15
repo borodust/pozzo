@@ -158,6 +158,19 @@
   (data :pointer))
 
 
+(defmacro with-script ((script-var &optional error-handler) instance &body body)
+  (a:once-only (instance)
+    (a:with-gensyms (script-ptr)
+      `(let ((,script-ptr (get-pozzo-object ,instance)))
+         (c-val ((,script-ptr (:struct script)))
+           (a:if-let ((,script-var (%find-script-by-address
+                                    (cffi:pointer-address (,script-ptr :script)))))
+             (progn ,@body)
+             ,(if error-handler
+                  `(funcall ,error-handler)
+                  `(error "Script not found for the instance ~A" ,instance))))))))
+
+
 (defun make-script-instance (script script-extension-object godot-object)
   (let* ((pozzo-object (memalloc '(:struct script)))
          (data (memallocz `(:struct ,(%struct-name-of script))))
@@ -170,63 +183,73 @@
 
 
 (defprotocallback (script-instance-call-method %gdext:script-instance-call)
-    (instance-var method-string-name argv argc result error-info)
+    (instance method-string-name argv argc result error-info)
   (shout-errors
-    (let ((script-ptr (get-pozzo-object instance-var)))
-      (c-val ((script-ptr (:struct script)))
-        (a:if-let ((script (%find-script-by-address
-                            (cffi:pointer-address (script-ptr :script)))))
-          (c-with ((method-hash %godot:int))
-            (%godot:string-name+hash method-string-name (method-hash &))
-            (a:when-let ((method-ptr (find-script-method-by-hash script method-hash)))
-              (funcall-prototype method-ptr pozzo-script-method
-                                 instance-var
-                                 argv
-                                 argc
-                                 (or result (cffi:null-pointer))
-                                 error-info)))
-          (progn
-            #++(report-missing-method-error error-info)))))
+    (with-script (script) instance
+      (c-with ((method-hash %godot:int))
+        (%godot:string-name+hash method-string-name (method-hash &))
+        (a:when-let ((method-ptr (find-script-method-by-hash script method-hash)))
+          (funcall-prototype method-ptr pozzo-script-method
+                             instance
+                             argv
+                             argc
+                             (or result (cffi:null-pointer))
+                             error-info))))
     (values)))
 
 
 (defprotocallback (script-instance-has-method %gdext:script-instance-has-method)
-    (instance-var method-string-name)
-  (let ((script-ptr (get-pozzo-object instance-var)))
-    (c-val ((script-ptr (:struct script)))
-      (a:if-let ((script (%find-script-by-address
-                          (cffi:pointer-address (script-ptr :script)))))
-        (c-with ((method-hash %godot:int))
-          (%godot:string-name+hash method-string-name (method-hash &))
-          (if (find-script-method-by-hash script method-hash) 1 0))
-        0))))
+    (instance method-string-name)
+  (with-script (script (constantly 0)) instance
+    (c-with ((method-hash %godot:int))
+      (%godot:string-name+hash method-string-name (method-hash &))
+      (if (find-script-method-by-hash script method-hash) 1 0))))
 
 
 (defprotocallback (script-instance-get-owner %gdext:script-instance-get-owner)
-    (instance-var)
-  (unwrap instance-var))
+    (instance)
+  (unwrap instance))
 
 
 (defprotocallback (script-instance-get-script %gdext:script-instance-get-script)
-    (instance-var)
-  (let ((script-ptr (get-pozzo-object instance-var)))
+    (instance)
+  (let ((script-ptr (get-pozzo-object instance)))
     (c-ref script-ptr (:struct script) :script)))
 
 
 (defprotocallback (script-instance-free %gdext:script-instance-free)
-    (instance-var)
-  (let ((script-ptr (get-pozzo-object instance-var)))
+    (instance)
+  (let ((script-ptr (get-pozzo-object instance)))
     (c-val ((script-ptr (:struct script)))
       (memfree (script-ptr :data)))
     (memfree script-ptr))
-  (destroy-pozzo-wrapper instance-var)
+  (destroy-pozzo-wrapper instance)
   (values))
 
 
 (defprotocallback (script-instance-get-language %gdext:script-instance-get-language)
-    (instance-var)
-  (declare (ignore instance-var))
+    (instance)
+  (declare (ignore instance))
   (opaque-script-language-object))
+
+
+(defprotocallback (script-instance-notification %gdext:script-instance-notification-2)
+    (instance what reversed)
+  (with-script (script) instance
+    (a:when-let (method-ptr (find-script-method script 'notice))
+      (with-variants ((what-v %godot:int what)
+                      (reversed-v %godot:bool reversed))
+        (c-with ((argv :pointer :count 2)
+                 (error-info %gdext:call-error :zero t))
+          (setf (argv 0) what-v
+                (argv 1) reversed-v)
+          (funcall-prototype method-ptr pozzo-script-method
+                             instance
+                             (argv &)
+                             2
+                             (cffi:null-pointer)
+                             (error-info &))))))
+  (values))
 
 
 (declaim (inline attach-script))

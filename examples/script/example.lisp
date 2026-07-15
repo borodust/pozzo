@@ -15,6 +15,27 @@
   (values))
 
 
+(pozzo:defpmethod %ready ((self canvas)) :void
+  (format *standard-output* "~&READY!")
+  (finish-output *standard-output*)
+  (values))
+
+
+(pozzo:defpmethod %process ((self canvas)  (delta %godot:float)) :void
+  (format *standard-output* "~&PROCESSING! ~A" delta)
+  (finish-output *standard-output*)
+  (values))
+
+
+(pozzo:defpmethod pozzo:notice ((self canvas)
+                                (what %godot:int)
+                                (reversed %godot:bool))
+    :void
+  (format *standard-output* "~&NOTIFIED! ~A" (list what reversed))
+  (finish-output *standard-output*)
+  (values))
+
+
 ;;;
 ;;; SCENE SETUP
 ;;;

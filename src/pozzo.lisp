@@ -57,6 +57,20 @@
                (shout "Extension ~A initialized" (%name-of extension)))))
 
 
+(declaim (inline make-script-instance-info))
+(defun make-script-instance-info ()
+  (let ((info (memallocz '(:struct %gdext:script-instance-info-3))))
+    (c-val ((info (:struct %gdext:script-instance-info-3)))
+      (setf (info :call-func) (get-protocallback 'script-instance-call-method)
+            (info :notification-func) (get-protocallback 'script-instance-notification)
+            (info :has-method-func) (get-protocallback 'script-instance-has-method)
+            (info :get-owner-func) (get-protocallback 'script-instance-get-owner)
+            (info :get-script-func) (get-protocallback 'script-instance-get-script)
+            (info :get-language-func) (get-protocallback 'script-instance-get-language)
+            (info :free-func) (get-protocallback 'script-instance-free)))
+    info))
+
+
 (defun start-pozzo (godot-instance)
   (with-slots ((this-godot-instance godot-instance)
                extension-registry
@@ -65,16 +79,9 @@
       *pozzo*
     (when this-godot-instance
       (error "Godot instance already acquired"))
-    (setf this-godot-instance godot-instance)
-    (let ((info (memallocz '(:struct %gdext:script-instance-info-3))))
-      (c-val ((info (:struct %gdext:script-instance-info-3)))
-        (setf (info :call-func) (get-protocallback 'script-instance-call-method)
-              (info :has-method-func) (get-protocallback 'script-instance-has-method)
-              (info :get-owner-func) (get-protocallback 'script-instance-get-owner)
-              (info :get-script-func) (get-protocallback 'script-instance-get-script)
-              (info :get-language-func) (get-protocallback 'script-instance-get-language)
-              (info :free-func) (get-protocallback 'script-instance-free)))
-      (setf opaque-script-instance-info info))
+    (setf this-godot-instance godot-instance
+          opaque-script-instance-info (make-script-instance-info))
+
 
     (c-with ((result %godot:bool))
       (%godot:godot-instance+start godot-instance (result &))
