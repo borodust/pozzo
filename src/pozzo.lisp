@@ -580,6 +580,35 @@
       (error "Script with name ~A not found" name))))
 
 
+(defstruct %script-info
+  name
+  path
+  base-type)
+
+
+(defun script-name (info)
+  (%script-info-name info))
+
+
+(defun script-path (info)
+  (%script-info-path info))
+
+
+(defun script-base-type (info)
+  (%script-info-base-type info))
+
+
+(defun list-scripts ()
+  (with-slots (script-registry) *pozzo*
+    (let ((result (list)))
+      (do-extension-scripts (script script-registry)
+        (push (make-%script-info :name (%name-of script)
+                                 :path (%path-of script)
+                                 :base-type (%base-type-of script))
+              result))
+      result)))
+
+
 (declaim (inline %ensure-script-mappings))
 (defun %ensure-script-mappings (script-extension-instance-ptr)
   (with-slots (script-registry) *pozzo*

@@ -232,3 +232,9 @@
     (a:if-let ((script (gethash script-name script-table)))
       (apply #'add-script-method script method-name initargs)
       (error "Script ~A not found" script-name))))
+
+
+(defmacro do-extension-scripts ((script-var script-registry) &body body)
+  `(loop for ,script-var being the hash-value
+           of (slot-value ,script-registry 'script-table)
+         do (progn ,@body)))

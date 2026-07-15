@@ -56,6 +56,10 @@
            #:initialize
 
            #:attach-script
+           #:list-scripts
+           #:script-name
+           #:script-path
+           #:script-base-type
            #:notice
 
            #:register-module
