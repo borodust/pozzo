@@ -40,7 +40,7 @@
   :author "Pavel Korolev"
   :mailto "dev@borodust.org"
   :license "MIT"
-  :depends-on (:alexandria :pozzo)
+  :depends-on (:alexandria :pozzo :pozzo-editor-tools)
   :pathname "examples/"
   :components ((:module "sprite"
                 :components ((:file "example")))
