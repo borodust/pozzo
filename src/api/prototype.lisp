@@ -47,6 +47,11 @@
            instance-ptr result-ptr args)))
 
 
+(defun find-pmethod (prototype method-name)
+  (with-slots (method-table) prototype
+    (gethash method-name method-table)))
+
+
 (define-compiler-macro funcall-pmethod (&whole whole proto-method-name instance-ptr result-ptr
                                                &rest args)
   (if (and (eq 'quote (first proto-method-name))

@@ -35,13 +35,20 @@
 (defmethod initialize-instance :after ((this extension-script)
                                        &key ((:path provided-path)))
   (with-slots (name path) this
-    (setf path
-          (if provided-path
-              (format nil "pozzo://script/expl/~A.pzo" provided-path)
-              (format nil "pozzo://script/impl/~(~A~)/~(~A~).pzo"
-                      (package-name (symbol-package name))
-                      (symbol-name name))))))
+    (setf path (if provided-path
+                   (format nil "pozzo://~A.pzo" provided-path)
+                   (format nil "pozzo://-/script/~(~A~)/~(~A~).pzo"
+                           (package-name (symbol-package name))
+                           (symbol-name name)))
+          (resource path) this)))
 
+
+(defmethod load-resource-variant ((this extension-script)
+                                  uninitialized-variant-ptr)
+  (with-slots (instance) this
+    (initialize-variant-from-value uninitialized-variant-ptr
+                                   instance
+                                   '%godot:script-extension)))
 
 (defcfunproto pozzo-script-method :void
   (instance %gdext:script-instance-data-ptr)
@@ -91,7 +98,7 @@
     (when (cffi:null-pointer-p instance)
       (let ((instaptr (construct 'opaque-script-extension)))
         (with-godot-string (path-gstr path)
-          (%godot:resource+set-path instaptr path-gstr))
+          (%godot:resource+take-over-path instaptr path-gstr))
         (setf instance instaptr)))
     instance))
 

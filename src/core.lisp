@@ -66,27 +66,6 @@
   (preturn nil))
 
 
-(defpclass pozzo-resource-format-loader
-  ()
-  (:inherit %godot:resource-format-loader)
-  (:extension root))
-
-
-(defpmethod (%exists :virtual) ((self pozzo-resource-format-loader)) %godot:bool
-  (preturn t))
-
-
-(defpmethod (%recognize-path :virtual) ((self pozzo-resource-format-loader)
-                                        (path %godot:string)
-                                        (type %godot:string))
-    %godot:bool
-  (declare (ignore type))
-  (c-with ((result %godot:bool))
-    (with-godot-string (proto "pozzo://")
-      (%godot:string+begins-with path (result &) proto))
-    (preturn result)))
-
-
 ;;;
 ;;; SCRIPT EXTENSION
 ;;;
@@ -100,9 +79,10 @@
 (defpmethod (%get-instance-base-type :virtual) ((self opaque-script-extension))
     %godot:string-name
   (preturn-with (result)
-    ;; FIXME:
-    (initialize-godot-string-name result
-                                  (get-class-bind-name '%godot:node))))
+    (let ((script (%ensure-script-mappings self)))
+      (initialize-godot-string-name result
+                                    (get-class-bind-name
+                                     (%base-type-of script))))))
 
 
 (defpmethod (%can-instantiate :virtual) ((self opaque-script-extension))
@@ -148,7 +128,6 @@
     %godot:error
   (declare (ignore keep-state-p))
   (preturn :ok))
-
 
 
 (cffi:defcstruct script
@@ -259,3 +238,53 @@
       (setf ptr (ensure-script-instance script))
       (with-variant (var %godot:script-extension ptr)
         (%godot:object+set-script godot-object var)))))
+
+
+;;;
+;;; RESOURCE LOADER
+;;;
+(defun init-resource-format-loader ()
+  (register-resource-format-loader (construct 'resource-format-loader)))
+
+
+(defpclass resource-format-loader
+  ((schema-prefix %godot:string))
+  (:inherit %godot:resource-format-loader)
+  (:level :core)
+  (:extension root)
+  (:init init-resource-format-loader))
+
+
+(defpmethod initialize ((self resource-format-loader))
+    :void
+  (initialize-godot-string (resource-format-loader-schema-prefix self)
+                           "pozzo://"))
+
+
+(defpmethod (%recognize-path :virtual) ((self resource-format-loader)
+                                        (path %godot:string)
+                                        (type %godot:string))
+    %godot:bool
+  (declare (ignore type))
+  (c-with ((result %godot:bool))
+    (%godot:string+begins-with path
+                               (result &)
+                               (resource-format-loader-schema-prefix self))
+    result))
+
+
+(defpmethod (%exists :virtual) ((self resource-format-loader)
+                                (path %godot:string))
+    %godot:bool
+  (preturn (and (resource (godot-string-to-lisp path)) t)))
+
+
+(defpmethod (%load :virtual) ((self resource-format-loader)
+                              (path %godot:string)
+                              (original-path %godot:string)
+                              (use-sub-threads %godot:bool)
+                              (cache-mode %godot:int))
+    %godot:variant
+  (let ((rsc (resource (godot-string-to-lisp path))))
+    (preturn-with (result)
+      (load-resource-variant rsc result))))

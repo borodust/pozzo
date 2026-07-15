@@ -12,6 +12,8 @@
    (root-extension :initform (make-extension 'root))
    (script-registry :initform (make-script-registry))
 
+   (resource-registry :initform (make-resource-registry))
+
    (opaque-script-instance-info)
    (stop-iterating-p :initform (cffi:foreign-alloc '%godot:bool))
    (action-queue :initform (muth:make-guarded-reference (list)))
@@ -267,14 +269,17 @@
                    %gdext:class-create-instance-2)
     (class-info notify-postinitialize-p)
   (shout-errors
-   (let ((class (%find-extension-class-by-metadata-id (cffi:pointer-address class-info))))
-     (c-val ((class-info (:struct pozzo-class-info)))
-       (let* ((obj-ptr (%gdext:classdb-construct-object2 (class-info :parent-name &)))
-              (wrapper-ptr (make-pozzo-wrapper obj-ptr (funcall (%constructor-name-of class)))))
-         (%gdext:object-set-instance obj-ptr (class-info :class-name &) wrapper-ptr)
-         (when notify-postinitialize-p
-           (%godot:object+notification obj-ptr 0 0))
-         obj-ptr)))))
+    (let ((class (%find-extension-class-by-metadata-id (cffi:pointer-address class-info))))
+      (c-val ((class-info (:struct pozzo-class-info)))
+        (let* ((obj-ptr (%gdext:classdb-construct-object2 (class-info :parent-name &)))
+               (wrapper-ptr (make-pozzo-wrapper obj-ptr (funcall (%constructor-name-of class)))))
+          (%gdext:object-set-instance obj-ptr (class-info :class-name &) wrapper-ptr)
+          (when (find-pmethod class 'initialize)
+            (funcall-pmethod `(,(%name-of class) initialize) wrapper-ptr (cffi:null-pointer)))
+          (when notify-postinitialize-p
+            (%godot:object+notification obj-ptr 0 0))
+
+          obj-ptr)))))
 
 
 (defprotocallback (free-extension-class-instance
@@ -658,6 +663,13 @@
       (setf opaque-script-language-object obj-ptr))))
 
 
+(defun register-resource-format-loader (obj-ptr)
+  (%godot:resource-loader+add-resource-format-loader
+   (%godot:resource-loader)
+   obj-ptr
+   t))
+
+
 (declaim (inline opaque-script-language-object))
 (defun opaque-script-language-object ()
   (slot-value *pozzo* 'opaque-script-language-object))
@@ -666,3 +678,16 @@
 (declaim (inline opaque-script-default-instance-info))
 (defun opaque-script-default-instance-info ()
   (slot-value *pozzo* 'opaque-script-instance-info))
+
+
+;;;
+;;; RESOURCES
+;;;
+(defun resource (path)
+  (with-slots (resource-registry) *pozzo*
+    (find-resource resource-registry path)))
+
+
+(defun (setf resource) (value path)
+  (with-slots (resource-registry) *pozzo*
+    (register-resource resource-registry path value)))

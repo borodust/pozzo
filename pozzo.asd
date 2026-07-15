@@ -28,6 +28,7 @@
                              (:file "property")
                              (:file "signal")
                              (:file "module")))
+               (:file "resource")
                (:file "pozzo")
                (:file "core")
                (:file "main")))

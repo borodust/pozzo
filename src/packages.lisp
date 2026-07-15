@@ -53,6 +53,7 @@
 
            #:construct
            #:destruct
+           #:initialize
 
            #:attach-script
            #:notice
