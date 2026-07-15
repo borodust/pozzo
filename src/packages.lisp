@@ -66,7 +66,11 @@
            #:make-module
            #:initialize-module
            #:release-module
-           #:iterate-module))
+           #:iterate-module
+
+           #:class-string-name
+           #:method-string-name
+           #:symbol-string-name))
 
 
 (cl:defpackage #:%%pozzo
