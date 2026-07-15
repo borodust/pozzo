@@ -250,7 +250,7 @@
 (defpclass resource-format-loader
   ((schema-prefix %godot:string))
   (:inherit %godot:resource-format-loader)
-  (:level :core)
+  (:level :servers)
   (:extension root)
   (:init init-resource-format-loader))
 
