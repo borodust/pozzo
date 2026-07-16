@@ -69,18 +69,19 @@
          (variant-kind (when class-name
                          (godot-extension-variant-kind class-name))))
     (a:with-gensyms (variant-ctor value-ptr)
-      (flet ((%expand-direct (value)
-               `(funcall-prototype (%gdext:get-variant-from-type-constructor :object)
-                                   %gdext:variant-from-type-constructor-func
-                                   ,uninitialized-variant-ptr
-                                   ,value))
-             (%expand-object ()
+      (flet ((%expand-object ()
                `(c-with ((,value-ptr :pointer))
                   (setf ,value-ptr ,value)
                   (funcall-prototype (%gdext:get-variant-from-type-constructor :object)
                                      %gdext:variant-from-type-constructor-func
                                      ,uninitialized-variant-ptr
                                      (,value-ptr &))))
+             (%expand-direct (value)
+               `(funcall-prototype ,variant-ctor
+                                   %gdext:variant-from-type-constructor-func
+                                   ,uninitialized-variant-ptr
+                                   ,value))
+
 
              (%expand-primitive (type value)
                `(c-with ((,value-ptr ,type))
