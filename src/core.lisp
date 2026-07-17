@@ -270,7 +270,7 @@
     (%godot:string+begins-with path
                                (result &)
                                (resource-format-loader-schema-prefix self))
-    result))
+    (preturn result)))
 
 
 (defpmethod (%exists :virtual) ((self resource-format-loader)
