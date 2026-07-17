@@ -61,6 +61,8 @@
                          editor
                          ((:godot-arguments godot-args))
                          ((:user-arguments user-args))
+                         dump-api
+                         headless
                        &allow-other-keys)
       args
     (multiple-value-bind (godot-arg-path
@@ -114,6 +116,10 @@
                       (list "--main-loop" main-loop))
                     (when editor
                       (list "-e"))
+                    (when dump-api
+                      (list "--dump-gdextension-interface" "--dump-gdextension-interface-json" "--dump-extension-api"))
+                    (when headless
+                      (list "--headless"))
                     (when projectlessp
                       (list "--projectless"))
                     (when rendering-method
@@ -256,9 +262,9 @@
 
 
 (defun enter (&rest args
-              &key path editor main (blocking nil)
+              &key path editor main (blocking nil) dump-api headless
               &allow-other-keys)
-  (declare (ignore path editor main))
+  (declare (ignore path editor main dump-api headless))
   (multiple-value-bind (pozzo-args godot-args user-args)
       (parse-command-line-arguments)
     (let ((pozzo-args (unix-opts:get-opts pozzo-args *pozzo-command-line-opts*)))
