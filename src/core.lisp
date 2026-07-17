@@ -193,7 +193,7 @@
 (defprotocallback (script-instance-get-script %gdext:script-instance-get-script)
     (instance)
   (let ((script-ptr (get-pozzo-object instance)))
-    (c-ref script-ptr (:struct script) :script)))
+    (unwrap (c-ref script-ptr (:struct script) :script))))
 
 
 (defprotocallback (script-instance-free %gdext:script-instance-free)

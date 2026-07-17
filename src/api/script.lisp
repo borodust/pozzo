@@ -46,9 +46,11 @@
 (defmethod load-resource-variant ((this extension-script)
                                   uninitialized-variant-ptr)
   (with-slots (instance) this
+    (ensure-script-instance this)
     (initialize-variant-from-value uninitialized-variant-ptr
                                    instance
                                    '%godot:script-extension)))
+
 
 (defcfunproto pozzo-script-method :void
   (instance %gdext:script-instance-data-ptr)
