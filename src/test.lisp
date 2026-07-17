@@ -20,7 +20,11 @@
 
 
 (defun run-tests (suite)
-  (let ((*test-results* nil)
-        (*test-suite* suite))
-    (pozzo:enter :main 'test-harness-loop :blocking t)
-    (reverse *test-results*)))
+  (unwind-protect
+       (progn
+         (setf *test-results* nil
+               *test-suite* suite)
+         (pozzo:enter :main 'test-harness-loop :blocking t)
+         (reverse *test-results*))
+    (setf *test-results* nil
+          *test-suite* nil)))
