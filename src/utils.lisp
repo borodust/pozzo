@@ -1,4 +1,4 @@
-(cl:in-package :pozzo)
+(cl:in-package #:pozzo)
 
 
 (defvar *pozzo-class-bind-map* (make-hash-table :test 'eq))

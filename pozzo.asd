@@ -31,7 +31,8 @@
                (:file "resource")
                (:file "pozzo")
                (:file "core")
-               (:file "main")))
+               (:file "main")
+               (:file "test")))
 
 
 (asdf:defsystem :pozzo/examples

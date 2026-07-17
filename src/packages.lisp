@@ -70,7 +70,10 @@
 
            #:class-string-name
            #:method-string-name
-           #:symbol-string-name))
+           #:symbol-string-name
+
+           #:iterate-test-suite
+           #:run-tests))
 
 
 (cl:defpackage #:%%pozzo
