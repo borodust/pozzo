@@ -13,6 +13,8 @@
                 #:bind-godot-constants
                 #:godot-string-to-lisp
                 #:godot-extension-bind-name
+                #:godot-extension-instantiable-p
+                #:godot-extension-refcounted-p
                 #:godot-extension-variant-kind)
   (:local-nicknames (#:a #:alexandria)
                     (#:backtrace #:trivial-backtrace))

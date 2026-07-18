@@ -23,6 +23,18 @@
     (godot-extension-bind-name class-name)))
 
 
+(defun class-instantiable-p (class-name)
+  (a:if-let ((bind-info (gethash class-name *pozzo-class-bind-map*)))
+    t
+    (godot-extension-instantiable-p class-name)))
+
+
+(defun class-refcounted-p (class-name)
+  (a:if-let ((bind-info (gethash class-name *pozzo-class-bind-map*)))
+    nil
+    (godot-extension-refcounted-p class-name)))
+
+
 (defun enum-registered-p (enum-name)
   (typep (ignore-errors (cffi::parse-type enum-name)) 'cffi::foreign-enum))
 
@@ -377,11 +389,19 @@
 
 
 (declaim (inline construct))
-(defun construct (class-name)
+(defun construct (class-name &optional (wrap-refcounted t))
+  (unless (class-instantiable-p class-name)
+    (error "Cannot construct instances of non-instantiable classes"))
   (with-godot-string-name (class-string-name (the string (get-class-bind-name class-name)))
     (let ((obj-ptr (%gdext:classdb-construct-object2 class-string-name)))
       (%godot:object+notification obj-ptr %godot:+object+notification-postinitialize+ 0)
-      obj-ptr)))
+
+      (if (and wrap-refcounted
+               (class-refcounted-p class-name))
+          (c-with ((res %godot:bool))
+            (%godot:ref-counted+init-ref obj-ptr (res &))
+            (values obj-ptr res))
+          (values obj-ptr nil)))))
 
 
 (declaim (inline destruct))
