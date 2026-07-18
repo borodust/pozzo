@@ -169,7 +169,8 @@
 
 
 (defun run-main (&rest args &key &allow-other-keys)
-  (prepare-pozzo)
+  (when (pozzo-started-p)
+    (error "Pozzo acts"))
   (with-godot-args (argc argv) args
     (let ((instance (%libgodot:create-godot-instance argc argv
                                                      (get-protocallback 'libgodot-init))))
@@ -177,6 +178,7 @@
           (error "Failed to create Godot instance")
           (unwind-protect
                (run-with-godot instance)
+            (stop-pozzo)
             (%libgodot:destroy-godot-instance instance))))))
 
 
@@ -265,6 +267,9 @@
               &key path editor main (blocking nil) dump-api headless
               &allow-other-keys)
   (declare (ignore path editor main dump-api headless))
+  (when (enteredp *pozzo*)
+    (error "Pozzo has entered. Restart the image"))
+  (notice-enter *pozzo*)
   (multiple-value-bind (pozzo-args godot-args user-args)
       (parse-command-line-arguments)
     (let ((pozzo-args (unix-opts:get-opts pozzo-args *pozzo-command-line-opts*)))
@@ -279,7 +284,8 @@
                           (apply #'run-main (list* :user-arguments user-args
                                                    :godot-arguments godot-args
                                                    (append args pozzo-args))))
-                     (cffi:close-foreign-library 'godot))))))
+                     (cffi:close-foreign-library 'godot)
+                     (warn "Pozzo exited. To reenter you have to restart the lisp image"))))))
         (trivial-main-thread:call-in-main-thread #'%main
                                                  :blocking (or blocking
                                                                (getf pozzo-args :wait))))))

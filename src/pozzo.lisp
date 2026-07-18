@@ -2,7 +2,8 @@
 
 
 (defclass pozzo ()
-  ((godot-instance :initform nil)
+  ((entered :initform nil :reader enteredp)
+   (godot-instance :initform nil)
    (extension-registry :initform (make-hash-table :test 'eq))
    (class-extension-table :initform (make-hash-table :test 'eq))
    (class-metadata-table :initform (make-hash-table :test 'eql))
@@ -15,7 +16,6 @@
    (resource-registry :initform (make-resource-registry))
 
    (opaque-script-instance-info)
-   (stop-iterating-p :initform (cffi:foreign-alloc '%godot:bool))
    (action-queue :initform (muth:make-guarded-reference (list)))
    (string-name-cache :initform (make-hash-table :test 'eq))
    (opaque-script-language-object :initform (cffi:null-pointer))))
@@ -24,14 +24,14 @@
 (defvar *pozzo* (make-instance 'pozzo))
 
 
+(defun notice-enter (pozzo)
+  (with-slots (entered) pozzo
+    (setf entered t)))
+
+
 (defun pozzo-started-p ()
   (with-slots (godot-instance) *pozzo*
     (not (null godot-instance))))
-
-
-(defun prepare-pozzo ()
-  (when (pozzo-started-p)
-    (error "Pozzo is already started")))
 
 
 (declaim (inline initialize-root-extension))
@@ -97,8 +97,8 @@
 
 
 (defun iterate-pozzo ()
-  (with-slots (godot-instance stop-iterating-p action-queue module-registry) *pozzo*
-    (c-val ((stop-iterating-p %godot:bool))
+  (with-slots (godot-instance action-queue module-registry) *pozzo*
+    (c-with ((stop-iterating-p %godot:bool))
       (%godot:godot-instance+iteration godot-instance (stop-iterating-p &))
       (loop for action in (muth:with-guarded-reference (action-queue)
                             (prog1 action-queue
@@ -110,15 +110,17 @@
 
 
 (defun stop-pozzo ()
-  (with-slots (godot-instance stop-iterating-p string-name-cache module-registry) *pozzo*
-    (cffi:foreign-free stop-iterating-p)
+  (with-slots (godot-instance string-name-cache module-registry) *pozzo*
+    ;; deinit systems
+    (loop for module being the hash-value in module-registry
+          do (release-module module))
+
+    ;; tear down
     (setf godot-instance nil)
     (loop for string-name-ptr being the hash-value of string-name-cache
           do (destroy-godot-string-name string-name-ptr)
              (memfree string-name-ptr))
     (clrhash string-name-cache)
-    (loop for module being the hash-value in module-registry
-          do (release-module module))
     (clrhash module-registry)))
 
 
