@@ -101,7 +101,7 @@
     (c-with ((stop-iterating-p %godot:bool))
       (%godot:godot-instance+iteration godot-instance (stop-iterating-p &))
       (loop for action in (muth:with-guarded-reference (action-queue)
-                            (prog1 action-queue
+                            (prog1 (nreverse action-queue)
                               (setf action-queue nil)))
             do (funcall action))
       (loop for module being the hash-value in module-registry
