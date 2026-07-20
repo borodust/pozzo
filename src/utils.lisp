@@ -184,8 +184,8 @@
       (%godot:make-string ptr)))
 
 
-(declaim (inline destroy-godot-string))
-(defun destroy-godot-string (ptr)
+(declaim (inline release-godot-string))
+(defun release-godot-string (ptr)
   (%godot:destroy-string ptr))
 
 
@@ -194,7 +194,7 @@
      (initialize-godot-string (,var &) ,lisp-string ,case)
      (unwind-protect
           (progn ,@body)
-       (destroy-godot-string (,var &)))))
+       (release-godot-string (,var &)))))
 
 
 (defmacro with-godot-strings (bindings &body body)
@@ -221,8 +221,8 @@
       (%godot:make-string-name ptr)))
 
 
-(declaim (inline destroy-godot-string-name))
-(defun destroy-godot-string-name (ptr)
+(declaim (inline release-godot-string-name))
+(defun release-godot-string-name (ptr)
   (%godot:destroy-string-name ptr))
 
 
@@ -231,7 +231,7 @@
      (initialize-godot-string-name (,var &) ,lisp-string ,case)
      (unwind-protect
           (progn ,@body)
-       (destroy-godot-string-name (,var &)))))
+       (release-godot-string-name (,var &)))))
 
 
 (defmacro with-godot-string-names (bindings &body body)
@@ -249,7 +249,7 @@
     (%godot:make-string@2 (godot-string &) ptr)
     (unwind-protect
          (godot-string-to-lisp (godot-string &))
-      (destroy-godot-string (godot-string &)))))
+      (release-godot-string (godot-string &)))))
 
 
 (defun initialize-godot-property (prop name variant-type
@@ -286,13 +286,13 @@
 (declaim (inline release-godot-property))
 (defun release-godot-property (prop)
   (c-val ((prop %gdext:property-info))
-    (destroy-godot-string-name (prop :name))
+    (release-godot-string-name (prop :name))
     (memfree (prop :name))
 
-    (destroy-godot-string-name (prop :class-name))
+    (release-godot-string-name (prop :class-name))
     (memfree (prop :class-name))
 
-    (destroy-godot-string (prop :hint-string))
+    (release-godot-string (prop :hint-string))
     (memfree (prop :hint-string))))
 
 

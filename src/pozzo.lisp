@@ -118,7 +118,7 @@
     ;; tear down
     (setf godot-instance nil)
     (loop for string-name-ptr being the hash-value of string-name-cache
-          do (destroy-godot-string-name string-name-ptr)
+          do (release-godot-string-name string-name-ptr)
              (memfree string-name-ptr))
     (clrhash string-name-cache)
     (clrhash module-registry)))
@@ -248,8 +248,8 @@
 
 (defun destroy-pozzo-class-info (ptr)
   (c-val ((ptr (:struct pozzo-class-info)))
-    (destroy-godot-string-name (ptr :class-name))
-    (destroy-godot-string-name (ptr :parent-name)))
+    (release-godot-string-name (ptr :class-name))
+    (release-godot-string-name (ptr :parent-name)))
   (memfree ptr))
 
 
