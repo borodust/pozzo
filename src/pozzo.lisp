@@ -18,7 +18,8 @@
    (opaque-script-instance-info)
    (action-queue :initform (muth:make-guarded-reference (list)))
    (string-name-cache :initform (make-hash-table :test 'eq))
-   (opaque-script-language-object :initform (cffi:null-pointer))))
+   (opaque-script-language-object :initform (cffi:null-pointer))
+   (refcounted-tag :initform (cffi:null-pointer))))
 
 
 (defvar *pozzo* (make-instance 'pozzo))
@@ -77,13 +78,16 @@
   (with-slots ((this-godot-instance godot-instance)
                extension-registry
                module-registry
-               opaque-script-instance-info)
+               opaque-script-instance-info
+               refcounted-tag)
       *pozzo*
     (when this-godot-instance
       (error "Godot instance already acquired"))
     (setf this-godot-instance godot-instance
           opaque-script-instance-info (make-script-instance-info))
 
+    (with-godot-string-name (refcounted-name "RefCounted")
+      (setf refcounted-tag (%gdext:classdb-get-class-tag refcounted-name)))
 
     (c-with ((result %godot:bool))
       (%godot:godot-instance+start godot-instance (result &))

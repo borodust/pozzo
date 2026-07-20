@@ -404,9 +404,22 @@
           (values obj-ptr nil)))))
 
 
+(declaim (inline refcountedp))
+(defun refcountedp (object-ptr)
+  (not (cffi:null-pointer-p
+        (%gdext:object-cast-to object-ptr
+                               (slot-value *pozzo* 'refcounted-tag)))))
+
+
 (declaim (inline destruct))
-(defun destruct (object-ptr)
-  (%gdext:object-destroy object-ptr))
+(defun destruct (object-ptr &optional (destroy-refcounted t))
+  (if (and destroy-refcounted
+           (refcountedp object-ptr))
+      (c-with ((destruct-p %godot:bool))
+        (%godot:ref-counted+unreference object-ptr (destruct-p &))
+        (when destruct-p
+          (%gdext:object-destroy object-ptr)))
+      (%gdext:object-destroy object-ptr)))
 
 
 (defun prepare-method-name-and-opts (name-and-opts)
