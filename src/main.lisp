@@ -2,7 +2,11 @@
 
 
 (cffi:define-foreign-library (godot
-                              :search-path (asdf:system-relative-pathname :pozzo "bin/"))
+                              :search-path (append
+                                            (a:when-let ((search-path (uiop:getenv "POZZO_LIBGODOT")))
+                                              (list search-path))
+                                            (list
+                                             (asdf:system-relative-pathname :pozzo "bin/"))))
   (:linux "libgodot.so"))
 
 
